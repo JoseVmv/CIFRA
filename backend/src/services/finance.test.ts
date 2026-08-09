@@ -1,0 +1,535 @@
+import { beforeEach, describe, expect, it } from 'vitest';
+import { openDatabase } from '../db/connection';
+import { addDays, daysBetween, eachDay, isValidIsoDate, today } from '../domain/dates';
+import { resolveRange } from '../domain/period';
+import { createServices, type Services } from '.';
+import { transactionBodySchema } from '../http/validation';
+
+function setup(): Services {
+  return createServices(openDatabase(':memory:'));
+}
+
+const TODAY = today();
+
+describe('cálculo de saldo', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+  });
+
+  it('começa zerado quando não há saldo inicial nem transações', () => {
+    expect(services.analytics.currentBalanceCents()).toBe(0);
+  });
+
+  it('usa o saldo inicial como ponto de partida', () => {
+    services.settings.update({ initialBalanceCents: 1_000_000 });
+    expect(services.analytics.currentBalanceCents()).toBe(1_000_000);
+  });
+
+  it('aplica saldo inicial + entradas − saídas', () => {
+    services.settings.update({ initialBalanceCents: 1_000_000 }); // R$ 10.000,00
+    services.transactions.create({
+      type: 'income',
+      amountCents: 240_000,
+      description: 'Salário',
+      category: 'Salário',
+      date: TODAY,
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 12_000,
+      description: 'Combustível',
+      category: 'Transporte',
+      date: TODAY,
+    });
+
+    // 1.000.000 + 240.000 − 12.000
+    expect(services.analytics.currentBalanceCents()).toBe(1_228_000);
+  });
+
+  it('mantém o histórico intacto ao alterar o saldo inicial', () => {
+    services.settings.update({ initialBalanceCents: 100_000 });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 30_000,
+      description: 'Mercado',
+      category: 'Alimentação',
+      date: TODAY,
+    });
+    expect(services.analytics.currentBalanceCents()).toBe(70_000);
+
+    services.settings.update({ initialBalanceCents: 500_000 });
+
+    expect(services.transactions.count()).toBe(1);
+    expect(services.analytics.currentBalanceCents()).toBe(470_000);
+  });
+
+  it('não perde precisão somando valores quebrados', () => {
+    // 0,10 + 0,20 em centavos precisa dar exatamente 0,30.
+    services.transactions.create({
+      type: 'income',
+      amountCents: 10,
+      description: 'a',
+      category: 'Outros',
+      date: TODAY,
+    });
+    services.transactions.create({
+      type: 'income',
+      amountCents: 20,
+      description: 'b',
+      category: 'Outros',
+      date: TODAY,
+    });
+    expect(services.analytics.currentBalanceCents()).toBe(30);
+  });
+});
+
+describe('transações', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+  });
+
+  it('cria uma entrada com id, timestamps e valores íntegros', () => {
+    const created = services.transactions.create({
+      type: 'income',
+      amountCents: 240_000,
+      description: 'Salário',
+      category: 'Salário',
+      date: TODAY,
+    });
+
+    expect(created.id).toMatch(/^[0-9a-f-]{36}$/);
+    expect(created.type).toBe('income');
+    expect(created.amountCents).toBe(240_000);
+    expect(created.date).toBe(TODAY);
+    expect(created.createdAt).toBeTruthy();
+    expect(services.transactions.getById(created.id)).toEqual(created);
+  });
+
+  it('cria uma saída', () => {
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 8_000,
+      description: 'Combustível',
+      category: 'Transporte',
+      date: TODAY,
+    });
+
+    expect(created.type).toBe('expense');
+    expect(services.analytics.currentBalanceCents()).toBe(-8_000);
+  });
+
+  it('edita uma transação e recalcula o saldo', () => {
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 8_000,
+      description: 'Combustível',
+      category: 'Transporte',
+      date: TODAY,
+    });
+
+    const updated = services.transactions.update(created.id, {
+      type: 'expense',
+      amountCents: 12_000,
+      description: 'Combustível (corrigido)',
+      category: 'Transporte',
+      date: TODAY,
+    });
+
+    expect(updated.id).toBe(created.id);
+    expect(updated.amountCents).toBe(12_000);
+    expect(updated.description).toBe('Combustível (corrigido)');
+    expect(services.analytics.currentBalanceCents()).toBe(-12_000);
+  });
+
+  it('trocar o tipo na edição inverte o efeito no saldo', () => {
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 50_000,
+      description: 'Erro de lançamento',
+      category: 'Outros',
+      date: TODAY,
+    });
+    expect(services.analytics.currentBalanceCents()).toBe(-50_000);
+
+    services.transactions.update(created.id, {
+      type: 'income',
+      amountCents: 50_000,
+      description: 'Era uma entrada',
+      category: 'Outros',
+      date: TODAY,
+    });
+
+    expect(services.analytics.currentBalanceCents()).toBe(50_000);
+  });
+
+  it('exclui uma transação e recalcula o saldo', () => {
+    services.settings.update({ initialBalanceCents: 100_000 });
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 25_000,
+      description: 'Compras',
+      category: 'Compras',
+      date: TODAY,
+    });
+    expect(services.analytics.currentBalanceCents()).toBe(75_000);
+
+    services.transactions.remove(created.id);
+
+    expect(services.transactions.count()).toBe(0);
+    expect(services.analytics.currentBalanceCents()).toBe(100_000);
+  });
+
+  it('lança 404 ao buscar, editar ou excluir id inexistente', () => {
+    expect(() => services.transactions.getById('nao-existe')).toThrowError(/não encontrada/i);
+    expect(() => services.transactions.remove('nao-existe')).toThrowError(/não encontrada/i);
+  });
+
+  it('rejeita no banco valores não positivos (última linha de defesa)', () => {
+    expect(() =>
+      services.transactions.create({
+        type: 'expense',
+        amountCents: 0,
+        description: 'Zero',
+        category: 'Outros',
+        date: TODAY,
+      }),
+    ).toThrowError();
+  });
+});
+
+describe('filtros do histórico', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+    services.transactions.create({
+      type: 'income',
+      amountCents: 300_000,
+      description: 'Salário de agosto',
+      category: 'Salário',
+      date: TODAY,
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 6_590,
+      description: 'Restaurante do Café',
+      category: 'Alimentação',
+      date: addDays(TODAY, -2),
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 12_000,
+      description: 'Combustível',
+      category: 'Transporte',
+      date: addDays(TODAY, -40),
+    });
+  });
+
+  it('filtra por tipo', () => {
+    expect(services.transactions.list({ type: 'expense' }).total).toBe(2);
+    expect(services.transactions.list({ type: 'income' }).total).toBe(1);
+  });
+
+  it('filtra por categoria', () => {
+    const result = services.transactions.list({ category: 'Transporte' });
+    expect(result.total).toBe(1);
+    expect(result.items[0]?.description).toBe('Combustível');
+  });
+
+  it('filtra por período', () => {
+    const range = resolveRange({ period: '30d' });
+    expect(services.transactions.list({ from: range.from, to: range.to }).total).toBe(2);
+  });
+
+  it('busca ignorando maiúsculas e acentos', () => {
+    expect(services.transactions.list({ search: 'cafe' }).total).toBe(1);
+    expect(services.transactions.list({ search: 'CAFÉ' }).total).toBe(1);
+    expect(services.transactions.list({ search: 'combustivel' }).total).toBe(1);
+  });
+
+  it('busca também pela categoria', () => {
+    expect(services.transactions.list({ search: 'alimentacao' }).total).toBe(1);
+  });
+
+  it('trata curingas do LIKE como texto literal', () => {
+    expect(services.transactions.list({ search: '%' }).total).toBe(0);
+  });
+
+  it('ordena da transação mais recente para a mais antiga', () => {
+    const { items } = services.transactions.list({});
+    expect(items.map((item) => item.date)).toEqual([TODAY, addDays(TODAY, -2), addDays(TODAY, -40)]);
+  });
+
+  it('pagina os resultados', () => {
+    const page = services.transactions.list({ limit: 2, offset: 0 });
+    expect(page.items).toHaveLength(2);
+    expect(page.total).toBe(3);
+    expect(services.transactions.list({ limit: 2, offset: 2 }).items).toHaveLength(1);
+  });
+});
+
+describe('resumo e estatísticas dos últimos 30 dias', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+    services.settings.update({ initialBalanceCents: 1_000_000 });
+
+    // Dentro da janela de 30 dias
+    services.transactions.create({
+      type: 'income',
+      amountCents: 480_000,
+      description: 'Salário',
+      category: 'Salário',
+      date: addDays(TODAY, -10),
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 150_000,
+      description: 'Aluguel',
+      category: 'Moradia',
+      date: addDays(TODAY, -10),
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 85_000,
+      description: 'Mercado',
+      category: 'Alimentação',
+      date: addDays(TODAY, -1),
+    });
+    // Fora da janela de 30 dias
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 999_900,
+      description: 'Notebook antigo',
+      category: 'Compras',
+      date: addDays(TODAY, -45),
+    });
+  });
+
+  it('soma apenas o que está dentro do período', () => {
+    const summary = services.analytics.getSummary(resolveRange({ period: '30d' }));
+    expect(summary.incomeCents).toBe(480_000);
+    expect(summary.expenseCents).toBe(235_000);
+    expect(summary.netCents).toBe(245_000);
+    expect(summary.transactionCount).toBe(3);
+  });
+
+  it('mantém o saldo atual como visão de toda a história', () => {
+    const summary = services.analytics.getSummary(resolveRange({ period: '30d' }));
+    // 1.000.000 + 480.000 − 235.000 − 999.900
+    expect(summary.currentBalanceCents).toBe(245_100);
+    expect(summary.initialBalanceCents).toBe(1_000_000);
+  });
+
+  it('calcula o saldo de abertura do período', () => {
+    const summary = services.analytics.getSummary(resolveRange({ period: '30d' }));
+    // Antes da janela existia apenas a saída de 999.900
+    expect(summary.openingBalanceCents).toBe(1_000_000 - 999_900);
+  });
+
+  it('inclui tudo no período "all"', () => {
+    const summary = services.analytics.getSummary(resolveRange({ period: 'all' }));
+    expect(summary.expenseCents).toBe(1_234_900);
+    expect(summary.netCents).toBe(480_000 - 1_234_900);
+    expect(summary.openingBalanceCents).toBe(1_000_000);
+  });
+
+  it('gera uma série diária com 30 pontos, sem buracos', () => {
+    const statistics = services.analytics.getStatistics(resolveRange({ period: '30d' }));
+    expect(statistics.range.granularity).toBe('day');
+    expect(statistics.series).toHaveLength(30);
+    expect(statistics.series.at(0)?.bucket).toBe(addDays(TODAY, -29));
+    expect(statistics.series.at(-1)?.bucket).toBe(TODAY);
+
+    const dayMinusTen = statistics.series.find((point) => point.bucket === addDays(TODAY, -10));
+    expect(dayMinusTen?.incomeCents).toBe(480_000);
+    expect(dayMinusTen?.expenseCents).toBe(150_000);
+  });
+
+  it('acumula o saldo ao longo da série a partir do saldo de abertura', () => {
+    const statistics = services.analytics.getStatistics(resolveRange({ period: '30d' }));
+    expect(statistics.series.at(-1)?.balanceCents).toBe(
+      services.analytics.currentBalanceCents(),
+    );
+  });
+
+  it('distribui os gastos por categoria com percentuais', () => {
+    const { expensesByCategory } = services.analytics.getStatistics(resolveRange({ period: '30d' }));
+    expect(expensesByCategory.map((slice) => slice.category)).toEqual(['Moradia', 'Alimentação']);
+    expect(expensesByCategory[0]?.totalCents).toBe(150_000);
+    expect(expensesByCategory[0]?.percent).toBeCloseTo(63.8, 1);
+    const totalPercent = expensesByCategory.reduce((sum, slice) => sum + slice.percent, 0);
+    expect(totalPercent).toBeCloseTo(100, 0);
+  });
+
+  it('agrupa por mês quando o período é longo demais para dias', () => {
+    services.transactions.create({
+      type: 'income',
+      amountCents: 1_000,
+      description: 'Transação antiga',
+      category: 'Outros',
+      date: addDays(TODAY, -200),
+    });
+
+    const statistics = services.analytics.getStatistics(resolveRange({ period: 'all' }));
+    expect(statistics.range.granularity).toBe('month');
+    expect(statistics.series.every((point) => /^\d{4}-\d{2}$/.test(point.bucket))).toBe(true);
+  });
+
+  it('devolve estatísticas coerentes com o banco vazio', () => {
+    const empty = setup();
+    const statistics = empty.analytics.getStatistics(resolveRange({ period: '30d' }));
+    expect(statistics.totals).toEqual({ incomeCents: 0, expenseCents: 0, netCents: 0 });
+    expect(statistics.expensesByCategory).toEqual([]);
+    expect(statistics.series.every((point) => point.balanceCents === 0)).toBe(true);
+  });
+});
+
+describe('reset total', () => {
+  it('apaga transações e configurações, voltando ao estado inicial', () => {
+    const services = setup();
+    services.settings.update({ initialBalanceCents: 1_000_000 });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 25_000,
+      description: 'Compras',
+      category: 'Compras',
+      date: TODAY,
+    });
+    services.transactions.create({
+      type: 'income',
+      amountCents: 80_000,
+      description: 'Freelance',
+      category: 'Freelance',
+      date: TODAY,
+    });
+
+    const result = services.maintenance.resetAll();
+
+    expect(result.deletedTransactions).toBe(2);
+    expect(result.clearedSettings).toBe(true);
+    expect(services.transactions.count()).toBe(0);
+    expect(services.settings.get().initialBalanceCents).toBe(0);
+    expect(services.analytics.currentBalanceCents()).toBe(0);
+  });
+
+  it('continua utilizável depois do reset', () => {
+    const services = setup();
+    services.transactions.create({
+      type: 'income',
+      amountCents: 10_000,
+      description: 'Antes',
+      category: 'Outros',
+      date: TODAY,
+    });
+    services.maintenance.resetAll();
+
+    services.settings.update({ initialBalanceCents: 5_000 });
+    services.transactions.create({
+      type: 'income',
+      amountCents: 2_000,
+      description: 'Depois',
+      category: 'Outros',
+      date: TODAY,
+    });
+
+    expect(services.transactions.count()).toBe(1);
+    expect(services.analytics.currentBalanceCents()).toBe(7_000);
+  });
+
+  it('é seguro rodar num banco já vazio', () => {
+    const services = setup();
+    expect(services.maintenance.resetAll()).toEqual({
+      deletedTransactions: 0,
+      clearedSettings: false,
+    });
+  });
+});
+
+describe('validação de entrada', () => {
+  const valid = {
+    type: 'expense' as const,
+    amountCents: 8_000,
+    description: 'Combustível',
+    category: 'Transporte',
+    date: TODAY,
+  };
+
+  it('aceita uma transação válida', () => {
+    expect(transactionBodySchema.safeParse(valid).success).toBe(true);
+  });
+
+  it('recusa valor zero, negativo ou fracionado', () => {
+    expect(transactionBodySchema.safeParse({ ...valid, amountCents: 0 }).success).toBe(false);
+    expect(transactionBodySchema.safeParse({ ...valid, amountCents: -100 }).success).toBe(false);
+    expect(transactionBodySchema.safeParse({ ...valid, amountCents: 10.5 }).success).toBe(false);
+    expect(transactionBodySchema.safeParse({ ...valid, amountCents: Number.NaN }).success).toBe(
+      false,
+    );
+  });
+
+  it('recusa valores absurdamente altos', () => {
+    expect(
+      transactionBodySchema.safeParse({ ...valid, amountCents: 100_000_000_001 }).success,
+    ).toBe(false);
+  });
+
+  it('recusa descrição vazia ou gigante', () => {
+    expect(transactionBodySchema.safeParse({ ...valid, description: '   ' }).success).toBe(false);
+    expect(
+      transactionBodySchema.safeParse({ ...valid, description: 'x'.repeat(141) }).success,
+    ).toBe(false);
+  });
+
+  it('recusa datas inválidas', () => {
+    for (const date of ['2026-02-30', '09/08/2026', '2026-13-01', 'ontem', '', '1899-12-31']) {
+      expect(transactionBodySchema.safeParse({ ...valid, date }).success).toBe(false);
+    }
+  });
+
+  it('recusa tipo fora do domínio', () => {
+    expect(transactionBodySchema.safeParse({ ...valid, type: 'entrada' }).success).toBe(false);
+  });
+
+  it('remove espaços em volta de descrição e categoria', () => {
+    const parsed = transactionBodySchema.parse({ ...valid, description: '  Café  ' });
+    expect(parsed.description).toBe('Café');
+  });
+});
+
+describe('utilitários de data e período', () => {
+  it('valida datas do calendário', () => {
+    expect(isValidIsoDate('2026-08-09')).toBe(true);
+    expect(isValidIsoDate('2024-02-29')).toBe(true); // bissexto
+    expect(isValidIsoDate('2025-02-29')).toBe(false);
+    expect(isValidIsoDate('2026-8-9')).toBe(false);
+  });
+
+  it('soma dias atravessando meses e anos', () => {
+    expect(addDays('2026-01-31', 1)).toBe('2026-02-01');
+    expect(addDays('2026-12-31', 1)).toBe('2027-01-01');
+    expect(addDays('2026-03-01', -1)).toBe('2026-02-28');
+  });
+
+  it('conta os dias entre duas datas', () => {
+    expect(daysBetween('2026-08-01', '2026-08-31')).toBe(30);
+    expect(eachDay('2026-08-01', '2026-08-31')).toHaveLength(31);
+  });
+
+  it('monta janelas de período inclusivas', () => {
+    const reference = new Date(2026, 7, 9); // 09/08/2026 local
+    expect(resolveRange({ period: '7d', now: reference })).toEqual({
+      from: '2026-08-03',
+      to: '2026-08-09',
+      period: '7d',
+    });
+    expect(resolveRange({ period: '30d', now: reference }).from).toBe('2026-07-11');
+    expect(resolveRange({ period: 'month', now: reference }).from).toBe('2026-08-01');
+    expect(resolveRange({ period: 'all', now: reference }).from).toBeNull();
+  });
+});
