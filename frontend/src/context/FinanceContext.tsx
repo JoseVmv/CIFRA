@@ -4,11 +4,15 @@ import { api } from '../lib/api';
 import { useApiResource } from '../hooks/useApiResource';
 import type { CategoriesResponse, PeriodKey, Settings } from '../types/api';
 
+/**
+ * Períodos são meses de calendário fechados, não janelas móveis: "Este mês" vai
+ * do dia 1 ao último dia do mês.
+ */
 export const PERIOD_OPTIONS: ReadonlyArray<{ key: PeriodKey; label: string; short: string }> = [
-  { key: '7d', label: 'Últimos 7 dias', short: '7 dias' },
-  { key: '30d', label: 'Últimos 30 dias', short: '30 dias' },
-  { key: '90d', label: 'Últimos 90 dias', short: '90 dias' },
   { key: 'month', label: 'Este mês', short: 'Este mês' },
+  { key: '3m', label: 'Últimos 3 meses', short: '3 meses' },
+  { key: '6m', label: 'Últimos 6 meses', short: '6 meses' },
+  { key: 'year', label: 'Este ano', short: 'Este ano' },
   { key: 'all', label: 'Todo o período', short: 'Tudo' },
 ];
 
@@ -35,7 +39,7 @@ function readStoredPeriod(): PeriodKey {
   } catch {
     /* localStorage indisponível */
   }
-  return '30d';
+  return 'month';
 }
 
 export function FinanceProvider({ children }: { children: ReactNode }) {

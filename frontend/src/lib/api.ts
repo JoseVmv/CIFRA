@@ -1,8 +1,11 @@
 import type {
+  Account,
+  AccountInput,
   CategoriesResponse,
   Paginated,
   PeriodKey,
   Settings,
+  SettingsInput,
   Statistics,
   Summary,
   Transaction,
@@ -101,10 +104,20 @@ export const api = {
 
   getSettings: () => request<Settings>('/settings'),
 
-  updateSettings: (input: { initialBalanceCents?: number }) =>
+  updateSettings: (input: SettingsInput) =>
     request<Settings>('/settings', { method: 'PUT', body: JSON.stringify(input) }),
 
   getCategories: () => request<CategoriesResponse>('/categories'),
+
+  listAccounts: () => request<{ items: Account[]; totalCents: number }>('/accounts'),
+
+  createAccount: (input: AccountInput) =>
+    request<Account>('/accounts', { method: 'POST', body: JSON.stringify(input) }),
+
+  updateAccount: (id: string, input: AccountInput) =>
+    request<Account>(`/accounts/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+
+  deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: 'DELETE' }),
 
   /** Apaga transações e configurações. Irreversível — sempre confirme antes. */
   resetAllData: () =>

@@ -40,19 +40,42 @@ export interface Paginated<T> {
   offset: number;
 }
 
+/** Uma "conta" é só um agrupamento nomeado com saldo — por enquanto sem outras funções. */
+export interface Account {
+  id: string;
+  name: string;
+  balanceCents: number;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AccountInput {
+  name: string;
+  balanceCents: number;
+}
+
 export interface Settings {
-  /** Quanto o usuário tinha antes de registrar qualquer transação. */
+  /**
+   * Saldo inicial efetivo — o que os cálculos usam. Com múltiplas contas ativas,
+   * é a soma das contas; caso contrário, é o valor digitado no campo.
+   */
   initialBalanceCents: number;
+  /** O valor digitado no campo, preservado mesmo com múltiplas contas ativas. */
+  manualInitialBalanceCents: number;
+  useMultipleAccounts: boolean;
+  accountsTotalCents: number;
+  displayName: string;
   currency: string;
   updatedAt: string;
 }
 
-export type PeriodKey = '7d' | '30d' | '90d' | 'month' | 'all';
+export type PeriodKey = 'month' | '3m' | '6m' | 'year' | 'all';
 
 export interface DateRange {
-  /** `null` significa "sem limite inferior" (período "Tudo"). */
+  /** `null` nos dois lados significa "sem limite" — é o período "Tudo". */
   from: string | null;
-  to: string;
+  to: string | null;
   period: PeriodKey | 'custom';
 }
 

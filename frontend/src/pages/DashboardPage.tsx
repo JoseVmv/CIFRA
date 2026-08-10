@@ -19,9 +19,13 @@ import { formatCurrency } from '../lib/format';
 const RECENT_LIMIT = 6;
 
 export function DashboardPage() {
-  const { period, version } = useFinance();
+  const { period, version, settings } = useFinance();
   const { openNew } = useTransactionDialog();
   const periodLabel = usePeriodLabel();
+
+  const greeting = settings?.displayName
+    ? `Olá, ${settings.displayName}. Seu dinheiro hoje e como ele se moveu no período.`
+    : 'Seu dinheiro hoje e como ele se moveu no período.';
 
   const summary = useApiResource(() => api.getSummary(period), [period, version]);
   const statistics = useApiResource(() => api.getStatistics(period), [period, version]);
@@ -42,11 +46,7 @@ export function DashboardPage() {
 
   return (
     <>
-      <PageHeader
-        title="Visão geral"
-        description="Seu dinheiro hoje e como ele se moveu no período."
-        actions={<PeriodSelector />}
-      />
+      <PageHeader title="Visão geral" description={greeting} actions={<PeriodSelector />} />
 
       <div className="flex flex-col gap-4 sm:gap-6">
         <SummaryCards
@@ -60,13 +60,13 @@ export function DashboardPage() {
             <EmptyState
               icon={<IconEmpty />}
               title="Nenhuma transação ainda"
-              description="Adicione sua primeira entrada ou saída para começar a acompanhar suas finanças. Se quiser, defina antes quanto você tem hoje em Ajustes."
+              description="Adicione sua primeira entrada ou saída para começar a acompanhar suas finanças. Se quiser, defina antes quanto você tem hoje na aba Usuário."
               action={
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <Button variant="primary" icon={<IconPlus />} onClick={() => openNew('income')}>
                     Nova transação
                   </Button>
-                  <Link to="/ajustes">
+                  <Link to="/usuario">
                     <Button variant="secondary">Definir saldo inicial</Button>
                   </Link>
                 </div>
@@ -155,8 +155,9 @@ export function DashboardPage() {
 
         {summary.data && (
           <p className="px-1 text-xs text-ink-3">
-            Saldo atual = saldo inicial ({formatCurrency(summary.data.initialBalanceCents)}) +
-            entradas − saídas de todo o histórico.
+            Saldo atual = saldo inicial ({formatCurrency(summary.data.initialBalanceCents)}
+            {settings?.useMultipleAccounts ? ', somando suas contas' : ''}) + entradas − saídas de
+            todo o histórico.
           </p>
         )}
       </div>

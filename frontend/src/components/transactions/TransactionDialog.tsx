@@ -1,13 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
+import { CurrencyInput } from '../ui/CurrencyInput';
 import { Field, Select, TextInput } from '../ui/Field';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
 import { api, ApiError } from '../../lib/api';
-import { centsToDigits, digitsToCents, formatDecimal, todayIso } from '../../lib/format';
-import { cn } from '../../lib/cn';
+import { todayIso } from '../../lib/format';
 import type { Transaction, TransactionType } from '../../types/api';
 
 const MAX_DESCRIPTION = 140;
@@ -19,32 +19,31 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
 
 interface FormState {
   type: TransactionType;
-  amountDigits: string;
+  amountCents: number;
   description: string;
   category: string;
   date: string;
 }
 
-type FormErrors = Partial<Record<'amountDigits' | 'description' | 'category' | 'date', string>>;
+type FormErrors = Partial<Record<'amountCents' | 'description' | 'category' | 'date', string>>;
 
 function initialState(transaction: Transaction | null, type: TransactionType): FormState {
   if (transaction) {
     return {
       type: transaction.type,
-      amountDigits: centsToDigits(transaction.amountCents),
+      amountCents: transaction.amountCents,
       description: transaction.description,
       category: transaction.category,
       date: transaction.date,
     };
   }
-  return { type, amountDigits: '', description: '', category: '', date: todayIso() };
+  return { type, amountCents: 0, description: '', category: '', date: todayIso() };
 }
 
 function validate(state: FormState): FormErrors {
   const errors: FormErrors = {};
-  const cents = digitsToCents(state.amountDigits);
 
-  if (cents <= 0) errors.amountDigits = 'Informe um valor maior que zero.';
+  if (state.amountCents <= 0) errors.amountCents = 'Informe um valor maior que zero.';
   if (!state.description.trim()) errors.description = 'Descreva a transação.';
   else if (state.description.trim().length > MAX_DESCRIPTION)
     errors.description = `Use no máximo ${MAX_DESCRIPTION} caracteres.`;
@@ -93,8 +92,6 @@ export function TransactionDialog({
     return state.category && !list.includes(state.category) ? [state.category, ...list] : list;
   }, [categories, state.type, state.category]);
 
-  const amountCents = digitsToCents(state.amountDigits);
-
   function update<K extends keyof FormState>(key: K, value: FormState[K]): void {
     setState((current) => ({ ...current, [key]: value }));
     setErrors((current) => ({ ...current, [key]: undefined }));
@@ -108,7 +105,7 @@ export function TransactionDialog({
 
     const payload = {
       type: state.type,
-      amountCents,
+      amountCents: state.amountCents,
       description: state.description.trim(),
       category: state.category,
       date: state.date,
@@ -169,34 +166,16 @@ export function TransactionDialog({
           }}
         />
 
-        <Field label="Valor" error={errors.amountDigits}>
+        <Field label="Valor" error={errors.amountCents}>
           {({ id, describedBy, invalid }) => (
-            <div className="relative">
-              <span
-                className={cn(
-                  'pointer-events-none absolute top-1/2 left-4 -translate-y-1/2 text-lg font-medium',
-                  amountCents > 0 ? 'text-ink-2' : 'text-ink-3',
-                )}
-              >
-                R$
-              </span>
-              <input
-                id={id}
-                aria-describedby={describedBy}
-                aria-invalid={invalid || undefined}
-                inputMode="numeric"
-                autoComplete="off"
-                placeholder="0,00"
-                value={amountCents > 0 ? formatDecimal(amountCents) : ''}
-                onChange={(event) => update('amountDigits', event.target.value.replace(/\D/g, ''))}
-                className={cn(
-                  'tnum h-14 w-full rounded-xl border border-line bg-surface pr-4 pl-12 text-right',
-                  'text-2xl font-semibold tracking-[-0.02em] text-ink placeholder:text-ink-3',
-                  'transition-colors duration-150 hover:border-line-strong focus:border-accent focus:outline-none',
-                  invalid && 'border-expense/60',
-                )}
-              />
-            </div>
+            <CurrencyInput
+              id={id}
+              size="lg"
+              aria-describedby={describedBy}
+              invalid={invalid}
+              valueCents={state.amountCents}
+              onChangeCents={(cents) => update('amountCents', cents)}
+            />
           )}
         </Field>
 

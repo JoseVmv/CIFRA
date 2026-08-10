@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../db/connection';
-import { addDays, daysBetween, eachDay, isValidIsoDate, today } from '../domain/dates';
+import { addDays, daysBetween, eachDay, endOfMonth, isValidIsoDate, today } from '../domain/dates';
 import { resolveRange } from '../domain/period';
 import { createServices, type Services } from '.';
 import { transactionBodySchema } from '../http/validation';
@@ -240,9 +240,10 @@ describe('filtros do histórico', () => {
     expect(result.items[0]?.description).toBe('Combustível');
   });
 
-  it('filtra por período', () => {
-    const range = resolveRange({ period: '30d' });
-    expect(services.transactions.list({ from: range.from, to: range.to }).total).toBe(2);
+  it('filtra por intervalo de datas', () => {
+    expect(
+      services.transactions.list({ from: addDays(TODAY, -29), to: TODAY }).total,
+    ).toBe(2);
   });
 
   it('busca ignorando maiúsculas e acentos', () => {
@@ -272,94 +273,144 @@ describe('filtros do histórico', () => {
   });
 });
 
-describe('resumo e estatísticas dos últimos 30 dias', () => {
+describe('resumo e estatísticas por mês de calendário', () => {
   let services: Services;
+
+  // Data fixa: os períodos são meses fechados, então o resultado não pode
+  // depender do dia em que a suíte roda.
+  const REFERENCE = new Date(2026, 7, 15); // 15/08/2026
+  const thisMonth = resolveRange({ period: 'month', now: REFERENCE });
+  const quarter = resolveRange({ period: '3m', now: REFERENCE });
+  const year = resolveRange({ period: 'year', now: REFERENCE });
+  const everything = resolveRange({ period: 'all', now: REFERENCE });
 
   beforeEach(() => {
     services = setup();
     services.settings.update({ initialBalanceCents: 1_000_000 });
 
-    // Dentro da janela de 30 dias
+    // Dentro do mês corrente
     services.transactions.create({
       type: 'income',
       amountCents: 480_000,
       description: 'Salário',
       category: 'Salário',
-      date: addDays(TODAY, -10),
+      date: '2026-08-05',
     });
     services.transactions.create({
       type: 'expense',
       amountCents: 150_000,
       description: 'Aluguel',
       category: 'Moradia',
-      date: addDays(TODAY, -10),
+      date: '2026-08-05',
     });
     services.transactions.create({
       type: 'expense',
       amountCents: 85_000,
       description: 'Mercado',
       category: 'Alimentação',
-      date: addDays(TODAY, -1),
+      date: '2026-08-14',
     });
-    // Fora da janela de 30 dias
+    // Fora do mês, mas dentro do trimestre
     services.transactions.create({
       type: 'expense',
       amountCents: 999_900,
-      description: 'Notebook antigo',
+      description: 'Notebook',
       category: 'Compras',
-      date: addDays(TODAY, -45),
+      date: '2026-06-20',
+    });
+    // Fora do trimestre, dentro do ano
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 50_000,
+      description: 'Curso',
+      category: 'Faculdade',
+      date: '2026-03-10',
     });
   });
 
-  it('soma apenas o que está dentro do período', () => {
-    const summary = services.analytics.getSummary(resolveRange({ period: '30d' }));
+  it('"Este mês" vai do dia 1 ao último dia do mês', () => {
+    expect(thisMonth.from).toBe('2026-08-01');
+    expect(thisMonth.to).toBe('2026-08-31');
+  });
+
+  it('soma apenas o que está dentro do mês corrente', () => {
+    const summary = services.analytics.getSummary(thisMonth);
     expect(summary.incomeCents).toBe(480_000);
     expect(summary.expenseCents).toBe(235_000);
     expect(summary.netCents).toBe(245_000);
     expect(summary.transactionCount).toBe(3);
   });
 
+  it('"Últimos 3 meses" cobre três meses inteiros', () => {
+    expect(quarter.from).toBe('2026-06-01');
+    expect(quarter.to).toBe('2026-08-31');
+
+    const summary = services.analytics.getSummary(quarter);
+    expect(summary.expenseCents).toBe(235_000 + 999_900);
+    expect(summary.transactionCount).toBe(4);
+  });
+
+  it('"Este ano" cobre janeiro a dezembro', () => {
+    expect(year.from).toBe('2026-01-01');
+    expect(year.to).toBe('2026-12-31');
+    expect(services.analytics.getSummary(year).expenseCents).toBe(1_284_900);
+  });
+
   it('mantém o saldo atual como visão de toda a história', () => {
-    const summary = services.analytics.getSummary(resolveRange({ period: '30d' }));
-    // 1.000.000 + 480.000 − 235.000 − 999.900
-    expect(summary.currentBalanceCents).toBe(245_100);
+    const summary = services.analytics.getSummary(thisMonth);
+    // 1.000.000 + 480.000 − 235.000 − 999.900 − 50.000
+    expect(summary.currentBalanceCents).toBe(195_100);
     expect(summary.initialBalanceCents).toBe(1_000_000);
   });
 
   it('calcula o saldo de abertura do período', () => {
-    const summary = services.analytics.getSummary(resolveRange({ period: '30d' }));
-    // Antes da janela existia apenas a saída de 999.900
-    expect(summary.openingBalanceCents).toBe(1_000_000 - 999_900);
+    const summary = services.analytics.getSummary(thisMonth);
+    // Antes de 01/08 existiam as saídas de 999.900 e 50.000
+    expect(summary.openingBalanceCents).toBe(1_000_000 - 999_900 - 50_000);
   });
 
-  it('inclui tudo no período "all"', () => {
-    const summary = services.analytics.getSummary(resolveRange({ period: 'all' }));
-    expect(summary.expenseCents).toBe(1_234_900);
-    expect(summary.netCents).toBe(480_000 - 1_234_900);
+  it('inclui tudo no período "all", sem limite nas duas pontas', () => {
+    expect(everything.from).toBeNull();
+    expect(everything.to).toBeNull();
+
+    const summary = services.analytics.getSummary(everything);
+    expect(summary.expenseCents).toBe(1_284_900);
+    expect(summary.netCents).toBe(480_000 - 1_284_900);
     expect(summary.openingBalanceCents).toBe(1_000_000);
   });
 
-  it('gera uma série diária com 30 pontos, sem buracos', () => {
-    const statistics = services.analytics.getStatistics(resolveRange({ period: '30d' }));
+  it('gera uma série diária cobrindo o mês inteiro, sem buracos', () => {
+    const statistics = services.analytics.getStatistics(thisMonth);
     expect(statistics.range.granularity).toBe('day');
-    expect(statistics.series).toHaveLength(30);
-    expect(statistics.series.at(0)?.bucket).toBe(addDays(TODAY, -29));
-    expect(statistics.series.at(-1)?.bucket).toBe(TODAY);
+    expect(statistics.series).toHaveLength(31);
+    expect(statistics.series.at(0)?.bucket).toBe('2026-08-01');
+    expect(statistics.series.at(-1)?.bucket).toBe('2026-08-31');
 
-    const dayMinusTen = statistics.series.find((point) => point.bucket === addDays(TODAY, -10));
-    expect(dayMinusTen?.incomeCents).toBe(480_000);
-    expect(dayMinusTen?.expenseCents).toBe(150_000);
+    const fifth = statistics.series.find((point) => point.bucket === '2026-08-05');
+    expect(fifth?.incomeCents).toBe(480_000);
+    expect(fifth?.expenseCents).toBe(150_000);
   });
 
   it('acumula o saldo ao longo da série a partir do saldo de abertura', () => {
-    const statistics = services.analytics.getStatistics(resolveRange({ period: '30d' }));
-    expect(statistics.series.at(-1)?.balanceCents).toBe(
-      services.analytics.currentBalanceCents(),
-    );
+    const statistics = services.analytics.getStatistics(thisMonth);
+    expect(statistics.series.at(-1)?.balanceCents).toBe(services.analytics.currentBalanceCents());
+  });
+
+  it('mantém a granularidade diária em três meses (92 dias no máximo)', () => {
+    const statistics = services.analytics.getStatistics(quarter);
+    expect(statistics.range.granularity).toBe('day');
+    expect(statistics.series).toHaveLength(92);
+  });
+
+  it('agrupa por mês em períodos longos', () => {
+    const statistics = services.analytics.getStatistics(year);
+    expect(statistics.range.granularity).toBe('month');
+    expect(statistics.series).toHaveLength(12);
+    expect(statistics.series.every((point) => /^\d{4}-\d{2}$/.test(point.bucket))).toBe(true);
   });
 
   it('distribui os gastos por categoria com percentuais', () => {
-    const { expensesByCategory } = services.analytics.getStatistics(resolveRange({ period: '30d' }));
+    const { expensesByCategory } = services.analytics.getStatistics(thisMonth);
     expect(expensesByCategory.map((slice) => slice.category)).toEqual(['Moradia', 'Alimentação']);
     expect(expensesByCategory[0]?.totalCents).toBe(150_000);
     expect(expensesByCategory[0]?.percent).toBeCloseTo(63.8, 1);
@@ -367,26 +418,27 @@ describe('resumo e estatísticas dos últimos 30 dias', () => {
     expect(totalPercent).toBeCloseTo(100, 0);
   });
 
-  it('agrupa por mês quando o período é longo demais para dias', () => {
-    services.transactions.create({
-      type: 'income',
-      amountCents: 1_000,
-      description: 'Transação antiga',
-      category: 'Outros',
-      date: addDays(TODAY, -200),
-    });
-
-    const statistics = services.analytics.getStatistics(resolveRange({ period: 'all' }));
-    expect(statistics.range.granularity).toBe('month');
-    expect(statistics.series.every((point) => /^\d{4}-\d{2}$/.test(point.bucket))).toBe(true);
-  });
-
   it('devolve estatísticas coerentes com o banco vazio', () => {
     const empty = setup();
-    const statistics = empty.analytics.getStatistics(resolveRange({ period: '30d' }));
+    const statistics = empty.analytics.getStatistics(resolveRange({ period: 'month' }));
     expect(statistics.totals).toEqual({ incomeCents: 0, expenseCents: 0, netCents: 0 });
     expect(statistics.expensesByCategory).toEqual([]);
     expect(statistics.series.every((point) => point.balanceCents === 0)).toBe(true);
+  });
+
+  it('em "Tudo" a série alcança lançamentos futuros', () => {
+    const future = setup();
+    future.transactions.create({
+      type: 'expense',
+      amountCents: 30_000,
+      description: 'Parcela agendada',
+      category: 'Compras',
+      date: addDays(TODAY, 40),
+    });
+
+    const statistics = future.analytics.getStatistics(resolveRange({ period: 'all' }));
+    expect(statistics.series.at(-1)?.bucket.startsWith(addDays(TODAY, 40).slice(0, 7))).toBe(true);
+    expect(statistics.totals.expenseCents).toBe(30_000);
   });
 });
 
@@ -446,6 +498,7 @@ describe('reset total', () => {
     const services = setup();
     expect(services.maintenance.resetAll()).toEqual({
       deletedTransactions: 0,
+      deletedAccounts: 0,
       clearedSettings: false,
     });
   });
@@ -521,15 +574,155 @@ describe('utilitários de data e período', () => {
     expect(eachDay('2026-08-01', '2026-08-31')).toHaveLength(31);
   });
 
-  it('monta janelas de período inclusivas', () => {
+  it('encontra o último dia de cada mês', () => {
+    expect(endOfMonth('2026-08-09')).toBe('2026-08-31');
+    expect(endOfMonth('2026-04-15')).toBe('2026-04-30');
+    expect(endOfMonth('2026-02-01')).toBe('2026-02-28');
+    expect(endOfMonth('2024-02-01')).toBe('2024-02-29'); // bissexto
+  });
+
+  it('monta os períodos como meses de calendário fechados', () => {
     const reference = new Date(2026, 7, 9); // 09/08/2026 local
-    expect(resolveRange({ period: '7d', now: reference })).toEqual({
-      from: '2026-08-03',
-      to: '2026-08-09',
-      period: '7d',
+
+    expect(resolveRange({ period: 'month', now: reference })).toEqual({
+      from: '2026-08-01',
+      to: '2026-08-31',
+      period: 'month',
     });
-    expect(resolveRange({ period: '30d', now: reference }).from).toBe('2026-07-11');
-    expect(resolveRange({ period: 'month', now: reference }).from).toBe('2026-08-01');
-    expect(resolveRange({ period: 'all', now: reference }).from).toBeNull();
+    expect(resolveRange({ period: '3m', now: reference })).toEqual({
+      from: '2026-06-01',
+      to: '2026-08-31',
+      period: '3m',
+    });
+    expect(resolveRange({ period: '6m', now: reference }).from).toBe('2026-03-01');
+    expect(resolveRange({ period: 'year', now: reference })).toEqual({
+      from: '2026-01-01',
+      to: '2026-12-31',
+      period: 'year',
+    });
+    expect(resolveRange({ period: 'all', now: reference })).toEqual({
+      from: null,
+      to: null,
+      period: 'all',
+    });
+  });
+
+  it('atravessa a virada de ano ao recuar meses', () => {
+    const reference = new Date(2026, 0, 20); // 20/01/2026
+    expect(resolveRange({ period: '3m', now: reference }).from).toBe('2025-11-01');
+    expect(resolveRange({ period: '6m', now: reference }).from).toBe('2025-08-01');
+    expect(resolveRange({ period: '3m', now: reference }).to).toBe('2026-01-31');
+  });
+
+  it('não escorrega o mês quando a referência cai no dia 31', () => {
+    const reference = new Date(2026, 2, 31); // 31/03/2026 — fevereiro não tem dia 31
+    expect(resolveRange({ period: '3m', now: reference }).from).toBe('2026-01-01');
+    expect(resolveRange({ period: 'month', now: reference }).to).toBe('2026-03-31');
+  });
+});
+
+describe('contas', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+  });
+
+  it('cria contas e devolve na ordem de inclusão', () => {
+    services.accounts.create({ name: 'Nubank', balanceCents: 250_000 });
+    services.accounts.create({ name: 'Itaú', balanceCents: 800_000 });
+    services.accounts.create({ name: 'Carteira', balanceCents: 15_000 });
+
+    expect(services.accounts.list().map((account) => account.name)).toEqual([
+      'Nubank',
+      'Itaú',
+      'Carteira',
+    ]);
+  });
+
+  it('soma o saldo de todas as contas', () => {
+    services.accounts.create({ name: 'Nubank', balanceCents: 250_000 });
+    services.accounts.create({ name: 'Itaú', balanceCents: 800_000 });
+    expect(services.accounts.totalBalanceCents()).toBe(1_050_000);
+  });
+
+  it('edita e exclui contas', () => {
+    const account = services.accounts.create({ name: 'Nubnak', balanceCents: 100 });
+
+    const updated = services.accounts.update(account.id, {
+      name: 'Nubank',
+      balanceCents: 250_000,
+    });
+    expect(updated.name).toBe('Nubank');
+    expect(updated.balanceCents).toBe(250_000);
+
+    services.accounts.remove(account.id);
+    expect(services.accounts.count()).toBe(0);
+    expect(services.accounts.totalBalanceCents()).toBe(0);
+  });
+
+  it('lança 404 para conta inexistente', () => {
+    expect(() => services.accounts.getById('nao-existe')).toThrowError(/não encontrada/i);
+    expect(() => services.accounts.remove('nao-existe')).toThrowError(/não encontrada/i);
+  });
+});
+
+describe('saldo inicial com múltiplas contas', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+    services.settings.update({ initialBalanceCents: 300_000 });
+    services.accounts.create({ name: 'Nubank', balanceCents: 250_000 });
+    services.accounts.create({ name: 'Itaú', balanceCents: 800_000 });
+  });
+
+  it('usa o valor digitado enquanto a opção está desmarcada', () => {
+    const settings = services.settings.get();
+    expect(settings.useMultipleAccounts).toBe(false);
+    expect(settings.initialBalanceCents).toBe(300_000);
+    expect(settings.accountsTotalCents).toBe(1_050_000);
+    expect(services.analytics.currentBalanceCents()).toBe(300_000);
+  });
+
+  it('passa a usar a soma das contas quando a opção é marcada', () => {
+    services.settings.update({ useMultipleAccounts: true });
+
+    const settings = services.settings.get();
+    expect(settings.initialBalanceCents).toBe(1_050_000);
+    expect(services.analytics.currentBalanceCents()).toBe(1_050_000);
+  });
+
+  it('preserva o valor digitado para quando a opção for desmarcada', () => {
+    services.settings.update({ useMultipleAccounts: true });
+    expect(services.settings.get().manualInitialBalanceCents).toBe(300_000);
+
+    services.settings.update({ useMultipleAccounts: false });
+    expect(services.settings.get().initialBalanceCents).toBe(300_000);
+  });
+
+  it('acompanha alterações nas contas em tempo real', () => {
+    services.settings.update({ useMultipleAccounts: true });
+    const extra = services.accounts.create({ name: 'Poupança', balanceCents: 150_000 });
+    expect(services.settings.get().initialBalanceCents).toBe(1_200_000);
+
+    services.accounts.remove(extra.id);
+    expect(services.settings.get().initialBalanceCents).toBe(1_050_000);
+  });
+
+  it('cai para zero se a opção está marcada e não há contas', () => {
+    const empty = setup();
+    empty.settings.update({ initialBalanceCents: 500_000, useMultipleAccounts: true });
+    expect(empty.settings.get().initialBalanceCents).toBe(0);
+  });
+
+  it('o reset também apaga as contas', () => {
+    services.settings.update({ useMultipleAccounts: true });
+    const result = services.maintenance.resetAll();
+
+    expect(result.deletedAccounts).toBe(2);
+    expect(services.accounts.count()).toBe(0);
+    expect(services.settings.get().useMultipleAccounts).toBe(false);
+    expect(services.settings.get().initialBalanceCents).toBe(0);
   });
 });

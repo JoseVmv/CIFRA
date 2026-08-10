@@ -94,13 +94,13 @@ describe('API', () => {
       }),
     });
 
-    const summary = await api('/api/summary?period=30d');
+    const summary = await api('/api/summary?period=month');
     expect(summary.status).toBe(200);
     expect(summary.body.currentBalanceCents).toBe(1_240_000);
     expect(summary.body.incomeCents).toBe(240_000);
 
     await api(`/api/transactions/${income.body.id}`, { method: 'DELETE' });
-    const afterDelete = await api('/api/summary?period=30d');
+    const afterDelete = await api('/api/summary?period=month');
     expect(afterDelete.body.currentBalanceCents).toBe(1_000_000);
     expect(afterDelete.body.incomeCents).toBe(0);
   });
@@ -125,6 +125,11 @@ describe('API', () => {
     expect(body.error.message).toBe('Informe uma data válida.');
   });
 
+  it('devolve 422 para período fora do domínio', async () => {
+    const { status } = await api('/api/summary?period=30d');
+    expect(status).toBe(422);
+  });
+
   it('devolve 400 para JSON malformado', async () => {
     const response = await fetch(`${baseUrl}/api/transactions`, {
       method: 'POST',
@@ -147,12 +152,21 @@ describe('API', () => {
     expect(JSON.stringify(body)).not.toMatch(/at .*\.ts:/);
   });
 
-  it('entrega estatísticas prontas para o gráfico', async () => {
-    const { status, body } = await api('/api/statistics?period=30d');
+  it('entrega estatísticas do mês prontas para o gráfico', async () => {
+    const { status, body } = await api('/api/statistics?period=month');
     expect(status).toBe(200);
-    expect(body.series).toHaveLength(30);
     expect(body.range.granularity).toBe('day');
+    expect(body.range.from).toMatch(/^\d{4}-\d{2}-01$/);
+    // Um ponto por dia do mês corrente — 28, 29, 30 ou 31.
+    expect(body.series.length).toBeGreaterThanOrEqual(28);
+    expect(body.series.length).toBeLessThanOrEqual(31);
     expect(Array.isArray(body.expensesByCategory)).toBe(true);
+  });
+
+  it('entrega o ano agrupado por mês', async () => {
+    const { body } = await api('/api/statistics?period=year');
+    expect(body.range.granularity).toBe('month');
+    expect(body.series).toHaveLength(12);
   });
 
   it('lista categorias padrão somadas às já utilizadas', async () => {
@@ -170,6 +184,59 @@ describe('API', () => {
     expect(body.error.message).toBe('Informe um saldo inicial válido.');
   });
 
+  it('gerencia contas e liga o saldo inicial à soma delas', async () => {
+    const nubank = await api('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Nubank', balanceCents: 250_000 }),
+    });
+    expect(nubank.status).toBe(201);
+
+    await api('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Itaú', balanceCents: 800_000 }),
+    });
+
+    const list = await api('/api/accounts');
+    expect(list.body.items).toHaveLength(2);
+    expect(list.body.totalCents).toBe(1_050_000);
+
+    // Enquanto a opção está desmarcada, o valor digitado continua valendo.
+    expect((await api('/api/settings')).body.initialBalanceCents).toBe(1_000_000);
+
+    const enabled = await api('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ useMultipleAccounts: true }),
+    });
+    expect(enabled.body.initialBalanceCents).toBe(1_050_000);
+    expect(enabled.body.manualInitialBalanceCents).toBe(1_000_000);
+
+    const renamed = await api(`/api/accounts/${nubank.body.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ name: 'Nubank Conta', balanceCents: 300_000 }),
+    });
+    expect(renamed.body.name).toBe('Nubank Conta');
+    expect((await api('/api/settings')).body.initialBalanceCents).toBe(1_100_000);
+
+    expect((await api(`/api/accounts/${nubank.body.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await api('/api/settings')).body.initialBalanceCents).toBe(800_000);
+
+    // Desmarcar devolve o valor digitado.
+    const disabled = await api('/api/settings', {
+      method: 'PUT',
+      body: JSON.stringify({ useMultipleAccounts: false }),
+    });
+    expect(disabled.body.initialBalanceCents).toBe(1_000_000);
+  });
+
+  it('recusa conta sem nome', async () => {
+    const { status, body } = await api('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ name: '   ', balanceCents: 100 }),
+    });
+    expect(status).toBe(422);
+    expect(body.error.message).toMatch(/nome/i);
+  });
+
   it('recusa apagar tudo sem a confirmação explícita', async () => {
     await api('/api/transactions', { method: 'POST', body: JSON.stringify(newExpense) });
 
@@ -183,8 +250,12 @@ describe('API', () => {
   });
 
   // Deixado por último de propósito: este teste zera o banco compartilhado.
-  it('apaga transações e configurações quando confirmado', async () => {
+  it('apaga transações, contas e configurações quando confirmado', async () => {
     await api('/api/transactions', { method: 'POST', body: JSON.stringify(newExpense) });
+    await api('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Carteira', balanceCents: 5_000 }),
+    });
     await api('/api/settings', {
       method: 'PUT',
       body: JSON.stringify({ initialBalanceCents: 700_000 }),
@@ -197,9 +268,11 @@ describe('API', () => {
 
     expect(status).toBe(200);
     expect(body.deletedTransactions).toBeGreaterThan(0);
+    expect(body.deletedAccounts).toBeGreaterThan(0);
 
     expect((await api('/api/transactions')).body.total).toBe(0);
+    expect((await api('/api/accounts')).body.items).toHaveLength(0);
     expect((await api('/api/settings')).body.initialBalanceCents).toBe(0);
-    expect((await api('/api/summary?period=30d')).body.currentBalanceCents).toBe(0);
+    expect((await api('/api/summary?period=month')).body.currentBalanceCents).toBe(0);
   });
 });

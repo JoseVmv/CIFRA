@@ -1,4 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
+import { createAccountsService, type AccountsService } from './accounts.service';
 import { createAnalyticsService, type AnalyticsService } from './analytics.service';
 import { createMaintenanceService, type MaintenanceService } from './maintenance.service';
 import { createSettingsService, type SettingsService } from './settings.service';
@@ -6,6 +7,7 @@ import { createTransactionsService, type TransactionsService } from './transacti
 
 export interface Services {
   db: DatabaseSync;
+  accounts: AccountsService;
   settings: SettingsService;
   transactions: TransactionsService;
   analytics: AnalyticsService;
@@ -17,9 +19,10 @@ export interface Services {
  * de um singleton global) é o que permite aos testes rodarem em `:memory:`.
  */
 export function createServices(db: DatabaseSync): Services {
-  const settings = createSettingsService(db);
+  const accounts = createAccountsService(db);
+  const settings = createSettingsService(db, accounts);
   const transactions = createTransactionsService(db);
   const analytics = createAnalyticsService(db, settings, transactions);
   const maintenance = createMaintenanceService(db);
-  return { db, settings, transactions, analytics, maintenance };
+  return { db, accounts, settings, transactions, analytics, maintenance };
 }

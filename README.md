@@ -10,21 +10,26 @@ Saldo atual = saldo inicial + total de entradas − total de saídas
 ```
 
 O saldo nunca é um número digitado à mão — ele é sempre derivado do histórico.
+O saldo inicial, por sua vez, vem do campo em **Usuário** ou, se você ativar
+múltiplas contas, da soma das contas cadastradas.
 
 ---
 
 ## O que o app faz
 
 - **Dashboard** com saldo atual, entradas, saídas e resultado do período.
-- **Seletor de período**: 7 dias, 30 dias, 90 dias, este mês ou tudo. Cards e
-  gráficos respondem juntos.
+- **Seletor de período por mês de calendário**: este mês, últimos 3 meses,
+  últimos 6 meses, este ano ou tudo. Cards e gráficos respondem juntos.
 - **Nova transação** em um diálogo rápido (entrada ou saída, valor, descrição,
   categoria e data), com confirmação visual e sem recarregar a página.
 - **Histórico** agrupado por dia, com busca por descrição (ignora acentos e
   maiúsculas), filtros de tipo, categoria e período, além de edição e exclusão.
 - **Análises**: entradas × saídas por dia, evolução do saldo acumulado e
   distribuição por categoria. Todo gráfico tem uma visão em tabela equivalente.
-- **Saldo inicial** configurável a qualquer momento, sem tocar no histórico.
+- **Aba Usuário** com as configurações pessoais: seu nome e o saldo inicial,
+  alterável a qualquer momento sem tocar no histórico.
+- **Múltiplas contas** (opcional): cadastre seus bancos e carteiras e o saldo
+  inicial passa a ser a soma deles.
 - **Resetar tudo** direto pela interface, em Ajustes, com confirmação por digitação.
 - **Tema claro e escuro**, responsivo de celular a desktop.
 
@@ -127,23 +132,29 @@ data/finance.sqlite
 Um único arquivo na raiz do projeto (criado no primeiro uso, junto com os
 arquivos `-wal`/`-shm` do SQLite). **Para fazer backup, basta copiar essa pasta.**
 
-O schema tem duas tabelas:
+O schema tem três tabelas:
 
 ```text
-transactions                    settings
-├── id (uuid)                   ├── key
-├── type (income | expense)     ├── value
-├── amount_cents (inteiro > 0)  └── updated_at
-├── description
-├── category
-├── date (YYYY-MM-DD)
-├── search_text                 → texto normalizado (busca sem acento)
+transactions                    accounts               settings
+├── id (uuid)                   ├── id (uuid)          ├── key
+├── type (income | expense)     ├── name               ├── value
+├── amount_cents (inteiro > 0)  ├── balance_cents      └── updated_at
+├── description                 ├── position
+├── category                    ├── created_at
+├── date (YYYY-MM-DD)           └── updated_at
+├── search_text  → texto normalizado (busca sem acento)
 ├── created_at
 └── updated_at
 ```
 
 O saldo inicial vive em `settings`, não como transação — assim ele pode ser
-alterado quantas vezes for preciso sem inventar lançamentos no histórico.
+alterado quantas vezes for preciso sem inventar lançamentos no histórico. Com
+`use_multiple_accounts` ligado, o valor efetivo passa a ser `SUM(accounts.balance_cents)`,
+e o número digitado continua guardado para voltar a valer se a opção for desmarcada.
+
+O schema evolui por migrations incrementais controladas por `PRAGMA user_version`
+— bancos criados em versões anteriores são atualizados sozinhos ao subir o app,
+sem perder dados.
 
 ### Resetar o banco
 
@@ -206,12 +217,16 @@ Base: `/api`
 | `DELETE` | `/transactions/:id` | Exclui |
 | `GET` | `/summary?period=30d` | Saldo atual, entradas, saídas, resultado e saldo de abertura |
 | `GET` | `/statistics?period=30d` | Série temporal + distribuição por categoria |
-| `GET` | `/settings` · `PUT` `/settings` | Saldo inicial e moeda |
+| `GET` | `/settings` · `PUT` `/settings` | Nome, saldo inicial, múltiplas contas |
+| `GET` `POST` | `/accounts` | Lista e cria contas |
+| `PUT` `DELETE` | `/accounts/:id` | Edita e remove uma conta |
 | `GET` | `/categories` | Categorias padrão + as já usadas |
 | `DELETE` | `/data` | Apaga tudo. Exige `{ "confirm": "RESETAR" }` no corpo |
 
-`period` aceita `7d`, `30d`, `90d`, `month` ou `all`. Valores monetários entram e
-saem sempre em **centavos inteiros**.
+`period` aceita `month`, `3m`, `6m`, `year` ou `all` — todos são **meses de
+calendário fechados**, do dia 1 ao último dia do mês, e não janelas móveis de N
+dias. Em `all` os dois limites ficam abertos. Valores monetários entram e saem
+sempre em **centavos inteiros**.
 
 <details>
 <summary>Exemplo de criação</summary>
@@ -261,11 +276,11 @@ CIFRA/
 │
 ├── frontend/
 │   └── src/
-│       ├── components/    ui/, layout/, charts/, transactions/, dashboard/
+│       ├── components/    ui/, layout/, charts/, transactions/, dashboard/, profile/
 │       ├── context/       período, atualização de dados, toasts, diálogo
 │       ├── hooks/         busca de dados e tema
 │       ├── lib/           cliente da API e formatação
-│       ├── pages/         Dashboard, Transações, Análises, Ajustes
+│       ├── pages/         Dashboard, Transações, Análises, Usuário, Ajustes
 │       └── types/         contratos da API
 │
 ├── data/                  banco SQLite (criado em tempo de execução)
@@ -284,13 +299,17 @@ descartável, sem mocks.
 npm test
 ```
 
-**Backend (56 testes)** — a lógica financeira é o foco:
+**Backend (78 testes)** — a lógica financeira é o foco:
 
 - saldo inicial + entradas − saídas, incluindo alteração do saldo inicial sem
   perder histórico;
 - criação, edição (inclusive troca de tipo) e exclusão recalculando o saldo;
-- janela dos últimos 30 dias: totais, saldo de abertura, série diária sem
-  buracos e saldo acumulado;
+- períodos como meses fechados: virada de ano, mês de 28/29/30/31 dias e
+  referência caindo no dia 31;
+- mês corrente: totais, saldo de abertura, série diária sem buracos e saldo
+  acumulado; granularidade diária até 92 dias e mensal acima disso;
+- múltiplas contas: soma como saldo inicial, preservação do valor digitado ao
+  alternar a opção e reflexo imediato de inclusões e remoções;
 - distribuição por categoria e percentuais;
 - validação de valores (zero, negativo, fracionado, absurdo), descrições e datas;
 - filtros, busca sem acento e paginação;
@@ -298,9 +317,10 @@ npm test
 - API completa por HTTP: códigos de status, mensagens amigáveis, JSON inválido,
   rota inexistente e ausência de stack trace nas respostas.
 
-**Frontend (11 testes)** — formatação monetária e o fluxo do diálogo de
-transação: digitação convertida em centavos, bloqueio com mensagens de erro,
-envio bem-sucedido, erro do servidor e edição pré-preenchida.
+**Frontend (18 testes)** — formatação monetária, o fluxo do diálogo de transação
+(digitação convertida em centavos, bloqueio com mensagens de erro, envio
+bem-sucedido, erro do servidor e edição pré-preenchida) e o painel de contas
+(listagem com soma, inclusão, edição ao sair do campo e remoção).
 
 ---
 

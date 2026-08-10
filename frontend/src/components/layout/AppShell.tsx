@@ -9,16 +9,19 @@ import {
   IconPlus,
   IconSettings,
   IconSun,
+  IconUser,
 } from '../ui/Icons';
 import { useTheme } from '../../hooks/useTheme';
 import { useTransactionDialog } from '../../context/TransactionDialogContext';
 import { cn } from '../../lib/cn';
 
+/** `short` é o rótulo da barra inferior no celular, onde o espaço é apertado. */
 const NAV_ITEMS = [
-  { to: '/', label: 'Visão geral', icon: IconDashboard },
-  { to: '/transacoes', label: 'Transações', icon: IconList },
-  { to: '/analises', label: 'Análises', icon: IconChart },
-  { to: '/ajustes', label: 'Ajustes', icon: IconSettings },
+  { to: '/', label: 'Visão geral', short: 'Início', icon: IconDashboard },
+  { to: '/transacoes', label: 'Transações', short: 'Extrato', icon: IconList },
+  { to: '/analises', label: 'Análises', short: 'Análises', icon: IconChart },
+  { to: '/usuario', label: 'Usuário', short: 'Usuário', icon: IconUser },
+  { to: '/ajustes', label: 'Ajustes', short: 'Ajustes', icon: IconSettings },
 ] as const;
 
 function Brand() {
@@ -117,7 +120,7 @@ export function AppShell({ children }: { children: ReactNode }) {
 
       {/* Navegação inferior — mobile */}
       <nav
-        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-4 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
+        className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
         aria-label="Seções do aplicativo"
       >
         {NAV_ITEMS.map((item) => {
@@ -127,13 +130,14 @@ export function AppShell({ children }: { children: ReactNode }) {
             <NavLink
               key={item.to}
               to={item.to}
+              aria-label={item.label}
               className={cn(
-                'flex flex-col items-center gap-1 py-2.5 text-[11px] font-medium transition-colors',
+                'flex flex-col items-center gap-1 py-2.5 text-[10px] font-medium transition-colors',
                 active ? 'text-ink' : 'text-ink-3',
               )}
             >
               <item.icon className="size-5" />
-              {item.label}
+              {item.short}
             </NavLink>
           );
         })}

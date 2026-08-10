@@ -29,6 +29,20 @@ const MIGRATIONS: readonly string[] = [
   CREATE INDEX idx_transactions_type_date ON transactions (type, date);
   CREATE INDEX idx_transactions_category ON transactions (category);
   `,
+
+  // 2. Contas nomeadas: quando ativadas, o saldo inicial passa a ser a soma delas.
+  `
+  CREATE TABLE accounts (
+    id            TEXT PRIMARY KEY,
+    name          TEXT    NOT NULL CHECK (length(name) BETWEEN 1 AND 40),
+    balance_cents INTEGER NOT NULL DEFAULT 0,
+    position      INTEGER NOT NULL DEFAULT 0,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL
+  );
+
+  CREATE INDEX idx_accounts_position ON accounts (position, created_at);
+  `,
 ];
 
 export function runMigrations(db: DatabaseSync): void {

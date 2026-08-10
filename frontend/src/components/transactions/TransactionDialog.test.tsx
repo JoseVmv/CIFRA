@@ -21,6 +21,11 @@ vi.mock('../../lib/api', async () => {
       getSummary: vi.fn(),
       getStatistics: vi.fn(),
       updateSettings: vi.fn(),
+      resetAllData: vi.fn(),
+      listAccounts: vi.fn(),
+      createAccount: vi.fn(),
+      updateAccount: vi.fn(),
+      deleteAccount: vi.fn(),
     },
   };
 });
@@ -43,6 +48,10 @@ function valueOf(label: string): string {
 beforeEach(() => {
   mockedApi.getSettings.mockResolvedValue({
     initialBalanceCents: 0,
+    manualInitialBalanceCents: 0,
+    useMultipleAccounts: false,
+    accountsTotalCents: 0,
+    displayName: '',
     currency: 'BRL',
     updatedAt: new Date().toISOString(),
   });

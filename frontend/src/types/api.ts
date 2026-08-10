@@ -28,17 +28,44 @@ export interface Paginated<T> {
   offset: number;
 }
 
+/** Agrupamento nomeado com saldo — por enquanto serve só para compor o saldo inicial. */
+export interface Account {
+  id: string;
+  name: string;
+  balanceCents: number;
+  position: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface AccountInput {
+  name: string;
+  balanceCents: number;
+}
+
 export interface Settings {
+  /** Saldo inicial efetivo: soma das contas, ou o valor digitado. */
   initialBalanceCents: number;
+  manualInitialBalanceCents: number;
+  useMultipleAccounts: boolean;
+  accountsTotalCents: number;
+  displayName: string;
   currency: string;
   updatedAt: string;
 }
 
-export type PeriodKey = '7d' | '30d' | '90d' | 'month' | 'all';
+export interface SettingsInput {
+  initialBalanceCents?: number;
+  useMultipleAccounts?: boolean;
+  displayName?: string;
+}
+
+export type PeriodKey = 'month' | '3m' | '6m' | 'year' | 'all';
 
 export interface DateRange {
+  /** `null` nos dois lados é o período "Tudo". */
   from: string | null;
-  to: string;
+  to: string | null;
   period: PeriodKey | 'custom';
 }
 

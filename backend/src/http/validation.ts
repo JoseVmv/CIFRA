@@ -8,6 +8,8 @@ import { ValidationError } from '../errors';
 export const MAX_AMOUNT_CENTS = 100_000_000_000;
 export const MAX_DESCRIPTION_LENGTH = 140;
 export const MAX_CATEGORY_LENGTH = 40;
+export const MAX_ACCOUNT_NAME_LENGTH = 40;
+export const MAX_NAME_LENGTH = 60;
 
 const MIN_DATE = '1900-01-01';
 const MAX_DATE = '2100-12-31';
@@ -30,20 +32,21 @@ export const transactionBodySchema = z.object({
   date: isoDateSchema,
 });
 
+const balanceCentsSchema = z.number().int().min(-MAX_AMOUNT_CENTS).max(MAX_AMOUNT_CENTS);
+
 export const settingsBodySchema = z
   .object({
-    initialBalanceCents: z
-      .number()
-      .int()
-      .min(-MAX_AMOUNT_CENTS)
-      .max(MAX_AMOUNT_CENTS)
-      .optional(),
+    initialBalanceCents: balanceCentsSchema.optional(),
+    useMultipleAccounts: z.boolean().optional(),
+    displayName: z.string().trim().max(MAX_NAME_LENGTH).optional(),
     currency: z.string().trim().min(3).max(3).optional(),
   })
-  .refine(
-    (value) => value.initialBalanceCents !== undefined || value.currency !== undefined,
-    'empty_update',
-  );
+  .refine((value) => Object.values(value).some((field) => field !== undefined), 'empty_update');
+
+export const accountBodySchema = z.object({
+  name: z.string().trim().min(1).max(MAX_ACCOUNT_NAME_LENGTH),
+  balanceCents: balanceCentsSchema,
+});
 
 export const listQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
@@ -83,6 +86,10 @@ const FIELD_MESSAGES: Record<string, string> = {
   limit: 'Quantidade de itens inválida.',
   offset: 'Paginação inválida.',
   initialBalanceCents: 'Informe um saldo inicial válido.',
+  useMultipleAccounts: 'Opção de múltiplas contas inválida.',
+  displayName: `Use no máximo ${MAX_NAME_LENGTH} caracteres no nome.`,
+  name: `Dê um nome à conta, com até ${MAX_ACCOUNT_NAME_LENGTH} caracteres.`,
+  balanceCents: 'Informe um saldo válido para a conta.',
   currency: 'Moeda inválida.',
   search: 'Busca muito longa.',
   id: 'Identificador inválido.',

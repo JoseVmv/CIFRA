@@ -200,6 +200,13 @@ export function createTransactionsService(db: DatabaseSync) {
     return row.earliest ?? null;
   }
 
+  function latestDate(): string | null {
+    const row = db.prepare('SELECT MAX(date) AS latest FROM transactions').get() as {
+      latest: string | null;
+    };
+    return row.latest ?? null;
+  }
+
   function count(): number {
     const row = db.prepare('SELECT COUNT(*) AS total FROM transactions').get() as { total: number };
     return row.total;
@@ -214,6 +221,7 @@ export function createTransactionsService(db: DatabaseSync) {
     remove,
     categoriesInUse,
     earliestDate,
+    latestDate,
     count,
   };
 }

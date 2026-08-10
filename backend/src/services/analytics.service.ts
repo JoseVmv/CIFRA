@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { daysBetween, eachDay, eachMonth } from '../domain/dates';
+import { daysBetween, eachDay, eachMonth, today } from '../domain/dates';
 import type {
   CategorySlice,
   DateRange,
@@ -21,7 +21,35 @@ interface Totals {
   count: number;
 }
 
-const EMPTY_TOTALS: Totals = { incomeCents: 0, expenseCents: 0, count: 0 };
+const SUM_COLUMNS = `
+  COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income,
+  COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense,
+  COUNT(*) AS count`;
+
+interface SqlFragment {
+  sql: string;
+  params: string[];
+}
+
+/**
+ * Cláusula de data do intervalo. Cada limite é opcional: em "Tudo" os dois são
+ * `null` e a consulta simplesmente não filtra por data.
+ */
+function rangeClause(range: DateRange, extraConditions: string[] = []): SqlFragment {
+  const conditions = [...extraConditions];
+  const params: string[] = [];
+
+  if (range.from !== null) {
+    conditions.push('date >= ?');
+    params.push(range.from);
+  }
+  if (range.to !== null) {
+    conditions.push('date <= ?');
+    params.push(range.to);
+  }
+
+  return { sql: conditions.length ? `WHERE ${conditions.join(' AND ')}` : '', params };
+}
 
 export type AnalyticsService = ReturnType<typeof createAnalyticsService>;
 
@@ -30,67 +58,31 @@ export function createAnalyticsService(
   settings: SettingsService,
   transactions: TransactionsService,
 ) {
-  const totalsAll = db.prepare(
-    `SELECT
-       COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income,
-       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense,
-       COUNT(*) AS count
-     FROM transactions`,
-  );
-
-  const totalsBefore = db.prepare(
-    `SELECT
-       COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income,
-       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense,
-       COUNT(*) AS count
-     FROM transactions
-     WHERE date < ?`,
-  );
-
-  const totalsInRange = db.prepare(
-    `SELECT
-       COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income,
-       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense,
-       COUNT(*) AS count
-     FROM transactions
-     WHERE date >= ? AND date <= ?`,
-  );
-
-  const totalsUntil = db.prepare(
-    `SELECT
-       COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income,
-       COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense,
-       COUNT(*) AS count
-     FROM transactions
-     WHERE date <= ?`,
-  );
-
-  function readTotals(
-    statement: { get: (...params: Array<string | number>) => unknown },
-    ...params: Array<string | number>
-  ): Totals {
-    const row = statement.get(...params) as
+  function readTotals(where: SqlFragment, extraParams: string[] = []): Totals {
+    const row = db
+      .prepare(`SELECT ${SUM_COLUMNS} FROM transactions ${where.sql}`)
+      .get(...extraParams, ...where.params) as
       | { income: number; expense: number; count: number }
       | undefined;
-    if (!row) return EMPTY_TOTALS;
+
+    if (!row) return { incomeCents: 0, expenseCents: 0, count: 0 };
     return { incomeCents: row.income, expenseCents: row.expense, count: row.count };
   }
 
   function rangeTotals(range: DateRange): Totals {
-    if (range.from === null) return readTotals(totalsUntil, range.to);
-    return readTotals(totalsInRange, range.from, range.to);
+    return readTotals(rangeClause(range));
   }
 
   /** Saldo imediatamente antes do início do período. */
   function openingBalance(range: DateRange): number {
     const initial = settings.getInitialBalanceCents();
     if (range.from === null) return initial;
-    const before = readTotals(totalsBefore, range.from);
+    const before = readTotals({ sql: 'WHERE date < ?', params: [range.from] });
     return initial + before.incomeCents - before.expenseCents;
   }
 
   function currentBalanceCents(): number {
-    const all = readTotals(totalsAll);
+    const all = readTotals({ sql: '', params: [] });
     return settings.getInitialBalanceCents() + all.incomeCents - all.expenseCents;
   }
 
@@ -109,22 +101,16 @@ export function createAnalyticsService(
   }
 
   function byCategory(type: TransactionType, range: DateRange): CategorySlice[] {
-    const conditions = ['type = ?', 'date <= ?'];
-    const params: Array<string | number> = [type, range.to];
-    if (range.from !== null) {
-      conditions.push('date >= ?');
-      params.push(range.from);
-    }
-
+    const where = rangeClause(range, ['type = ?']);
     const rows = db
       .prepare(
         `SELECT category, SUM(amount_cents) AS total, COUNT(*) AS count
            FROM transactions
-          WHERE ${conditions.join(' AND ')}
+           ${where.sql}
           GROUP BY category
           ORDER BY total DESC, category ASC`,
       )
-      .all(...params) as Array<{ category: string; total: number; count: number }>;
+      .all(type, ...where.params) as Array<{ category: string; total: number; count: number }>;
 
     const grandTotal = rows.reduce((sum, row) => sum + row.total, 0);
 
@@ -142,7 +128,7 @@ export function createAnalyticsService(
     granularity: Granularity,
     startingBalance: number,
   ): SeriesPoint[] {
-    const bucketExpression = granularity === 'day' ? 'date' : "substr(date, 1, 7)";
+    const bucketExpression = granularity === 'day' ? 'date' : 'substr(date, 1, 7)';
     const rows = db
       .prepare(
         `SELECT ${bucketExpression} AS bucket,
@@ -168,15 +154,25 @@ export function createAnalyticsService(
     });
   }
 
+  /**
+   * "Tudo" não tem limites definidos, então a série é desenhada da transação mais
+   * antiga até a mais recente (sempre incluindo hoje, para a linha de saldo
+   * chegar ao presente).
+   */
+  function seriesBounds(range: DateRange): { start: string; end: string } {
+    const now = today();
+    const start = range.from ?? transactions.earliestDate() ?? now;
+    const latest = transactions.latestDate() ?? now;
+    const end = range.to ?? (latest > now ? latest : now);
+    return { start: start > end ? end : start, end };
+  }
+
   function getStatistics(range: DateRange): Statistics {
     const totals = rangeTotals(range);
     const opening = openingBalance(range);
-
-    // "Tudo" precisa de um início concreto para desenhar a série.
-    const from = range.from ?? transactions.earliestDate() ?? range.to;
-    const start = from > range.to ? range.to : from;
+    const { start, end } = seriesBounds(range);
     const granularity: Granularity =
-      daysBetween(start, range.to) + 1 > MAX_DAILY_BUCKETS ? 'month' : 'day';
+      daysBetween(start, end) + 1 > MAX_DAILY_BUCKETS ? 'month' : 'day';
 
     return {
       range: { ...range, granularity },
@@ -186,7 +182,7 @@ export function createAnalyticsService(
         netCents: totals.incomeCents - totals.expenseCents,
       },
       openingBalanceCents: opening,
-      series: buildSeries(start, range.to, granularity, opening),
+      series: buildSeries(start, end, granularity, opening),
       expensesByCategory: byCategory('expense', range),
       incomeByCategory: byCategory('income', range),
     };

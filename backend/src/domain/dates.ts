@@ -57,6 +57,21 @@ export function startOfMonth(iso: string): string {
   return `${iso.slice(0, 7)}-01`;
 }
 
+/** Último dia do mês: 28, 29, 30 ou 31, conforme o calendário. */
+export function endOfMonth(iso: string): string {
+  const [year, month] = iso.split('-').map(Number) as [number, number];
+  // Dia 0 do mês seguinte é o último dia do mês atual.
+  return format(new Date(Date.UTC(year, month, 0, 12)));
+}
+
+export function startOfYear(iso: string): string {
+  return `${iso.slice(0, 4)}-01-01`;
+}
+
+export function endOfYear(iso: string): string {
+  return `${iso.slice(0, 4)}-12-31`;
+}
+
 /** Diferença em dias inteiros entre duas datas (`to - from`). */
 export function daysBetween(from: string, to: string): number {
   const diff = toUtcDate(to).getTime() - toUtcDate(from).getTime();
