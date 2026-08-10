@@ -63,7 +63,7 @@ export function AppShell({ children }: { children: ReactNode }) {
   return (
     <div className="min-h-dvh bg-app">
       {/* Navegação lateral — desktop */}
-      <aside className="fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line bg-surface px-4 py-6 lg:flex">
+      <aside className="surface-sheen fixed inset-y-0 left-0 z-30 hidden w-60 flex-col border-r border-line bg-surface px-4 py-6 lg:flex">
         <div className="px-2">
           <Brand />
         </div>
@@ -110,7 +110,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         onClick={() => openNew()}
         className={cn(
           'fixed right-4 bottom-20 z-30 flex h-12 items-center gap-2 rounded-full px-5 lg:hidden',
-          'bg-primary text-sm font-medium text-primary-ink shadow-[var(--shadow-pop)]',
+          'button-primary text-sm font-medium shadow-[var(--shadow-pop)]',
           'transition-transform duration-150 active:scale-95',
         )}
       >

@@ -89,7 +89,7 @@ export function Modal({
         aria-labelledby={titleId}
         className={cn(
           'relative z-10 flex max-h-[92vh] w-full flex-col overflow-hidden animate-slide-up',
-          'rounded-t-2xl border border-line bg-surface shadow-[var(--shadow-pop)]',
+          'surface-sheen rounded-t-2xl border border-line bg-surface shadow-[var(--shadow-pop)]',
           'sm:rounded-2xl',
           size === 'sm' ? 'sm:max-w-sm' : 'sm:max-w-md',
         )}

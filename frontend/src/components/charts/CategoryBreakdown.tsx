@@ -63,7 +63,8 @@ export function CategoryBreakdown({
               className="h-full rounded-full transition-[width] duration-500 ease-out"
               style={{
                 width: `${largest > 0 ? Math.max((slice.totalCents / largest) * 100, 1.5) : 0}%`,
-                backgroundColor: color,
+                // Degradê horizontal muito curto: a barra "acende" até a ponta.
+                backgroundImage: `linear-gradient(90deg, color-mix(in oklab, ${color} 70%, transparent), ${color})`,
               }}
             />
           </div>

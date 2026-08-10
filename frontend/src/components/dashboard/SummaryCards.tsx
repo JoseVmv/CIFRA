@@ -17,7 +17,7 @@ interface StatCardProps {
 
 function StatCard({ label, value, hint, icon, tone = 'neutral', emphasis = false }: StatCardProps) {
   return (
-    <Card className="p-5">
+    <Card className={cn('p-5', emphasis && 'surface-tinted')}>
       <div className="flex items-start justify-between gap-3">
         <p className="text-[13px] font-medium text-ink-3">{label}</p>
         <span

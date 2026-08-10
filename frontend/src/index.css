@@ -50,8 +50,28 @@
   --grid: #eeedea;
   --axis: #d7d6d0;
 
-  --shadow-card: 0 1px 2px rgb(16 16 20 / 0.04);
+  /* A linha branca no topo do card simula luz vindo de cima. */
+  --shadow-card: 0 1px 2px rgb(16 16 20 / 0.04), inset 0 1px 0 rgb(255 255 255 / 0.7);
   --shadow-pop: 0 12px 32px -12px rgb(16 16 20 / 0.18), 0 2px 8px -4px rgb(16 16 20 / 0.08);
+
+  /*
+   * Textura e profundidade.
+   *
+   * Tudo aqui é deliberadamente fraco: o fundo deixa de ser chapado, mas nada
+   * disso deve competir com o conteúdo. Sobre o branco o grão escurece de leve;
+   * sobre o quase-preto ele clareia. É o mesmo ruído nos dois temas, só muda a
+   * opacidade.
+   */
+  --app-tint-1: rgb(42 120 214 / 0.05);
+  --app-tint-2: rgb(18 161 80 / 0.035);
+  --noise-opacity: 0.038;
+
+  /* No claro a superfície já é branca: o degradê só sombreia a base. */
+  --card-sheen: linear-gradient(180deg, rgb(255 255 255 / 0) 55%, rgb(14 14 16 / 0.022));
+  --card-tint: rgb(42 120 214 / 0.055);
+
+  --primary-image: linear-gradient(180deg, #26262c, #16161a);
+  --primary-image-hover: linear-gradient(180deg, #35353d, #26262c);
 }
 
 .dark {
@@ -91,8 +111,18 @@
   --grid: #212125;
   --axis: #34343a;
 
-  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35);
+  --shadow-card: 0 1px 2px rgb(0 0 0 / 0.35), inset 0 1px 0 rgb(255 255 255 / 0.055);
   --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / 0.6), 0 2px 8px -4px rgb(0 0 0 / 0.4);
+
+  --app-tint-1: rgb(57 135 229 / 0.1);
+  --app-tint-2: rgb(43 174 112 / 0.055);
+  --noise-opacity: 0.055;
+
+  --card-sheen: linear-gradient(180deg, rgb(255 255 255 / 0.045), rgb(255 255 255 / 0) 40%);
+  --card-tint: rgb(57 135 229 / 0.1);
+
+  --primary-image: linear-gradient(180deg, #ffffff, #e7e7e5);
+  --primary-image-hover: linear-gradient(180deg, #ffffff, #d6d6d3);
 }
 
 @theme inline {
@@ -173,11 +203,34 @@
 
   body {
     background-color: var(--app);
+    /* Dois halos largos e quase invisíveis, presos à viewport: dão profundidade
+       ao plano sem virar "papel de parede". */
+    background-image:
+      radial-gradient(880px 520px at 8% -10%, var(--app-tint-1), transparent 62%),
+      radial-gradient(720px 460px at 96% 4%, var(--app-tint-2), transparent 60%);
+    background-attachment: fixed;
+    background-repeat: no-repeat;
     color: var(--ink);
     font-family: var(--font-sans);
     font-feature-settings: 'cv02', 'cv03', 'cv04';
     -webkit-font-smoothing: antialiased;
     text-rendering: optimizeLegibility;
+  }
+
+  /* Grão fino sobre o fundo — perceptível de perto, invisível de longe. */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: var(--noise-opacity);
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='4' stitchTiles='stitch'/%3E%3CfeColorMatrix type='saturate' values='0'/%3E%3C/filter%3E%3Crect width='160' height='160' filter='url(%23n)'/%3E%3C/svg%3E");
+  }
+
+  #root {
+    position: relative;
+    z-index: 1;
   }
 
   :focus-visible {
@@ -204,6 +257,35 @@
   ::-webkit-scrollbar-track {
     background: transparent;
   }
+}
+
+/*
+ * Detalhamento das superfícies.
+ *
+ * Fora de `@layer` de propósito: são classes de composição usadas junto das
+ * utilidades do Tailwind (`bg-surface` continua definindo a cor; aqui só entra
+ * o `background-image`).
+ */
+.surface-sheen {
+  background-image: var(--card-sheen);
+}
+
+/* Card em destaque (saldo atual): um halo frio no canto superior. */
+.surface-tinted {
+  background-image:
+    radial-gradient(130% 110% at 100% 0%, var(--card-tint), transparent 58%),
+    var(--card-sheen);
+}
+
+.button-primary {
+  background-color: var(--primary);
+  background-image: var(--primary-image);
+  color: var(--primary-ink);
+}
+
+.button-primary:hover {
+  background-color: var(--primary-hover);
+  background-image: var(--primary-image-hover);
 }
 
 @media (prefers-reduced-motion: reduce) {

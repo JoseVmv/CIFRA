@@ -147,7 +147,7 @@ function BudgetRow({ budget, onEdit, onRemove }: BudgetRowProps) {
           className="h-full rounded-full transition-[width] duration-500 ease-out"
           style={{
             width: `${Math.min(budget.percent, 100)}%`,
-            backgroundColor: style.bar,
+            backgroundImage: `linear-gradient(90deg, color-mix(in oklab, ${style.bar} 70%, transparent), ${style.bar})`,
           }}
         />
       </div>
