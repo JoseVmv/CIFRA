@@ -110,6 +110,48 @@ npm start
 Abra <http://127.0.0.1:4000>. Nesse modo o backend serve o build do frontend na
 mesma porta — é a forma mais simples de usar o app no dia a dia.
 
+### Atalho de um clique (Windows)
+
+Para o uso do dia a dia não é preciso abrir terminal nenhum. Rode **uma vez**:
+
+```powershell
+powershell -ExecutionPolicy Bypass -File scripts\criar-atalho.ps1
+```
+
+Isso cria um atalho **CIFRA** na área de trabalho e no menu Iniciar. A partir daí,
+um clique faz tudo:
+
+1. se o app já está rodando e o build está em dia, abre a aba na hora;
+2. se você mexeu no código depois do último build, recompila sozinho e reinicia;
+3. sobe o backend em segundo plano, sem janela de terminal;
+4. espera a porta responder e abre <http://127.0.0.1:4000> no navegador padrão.
+
+Enquanto compila (só quando é necessário), aparece um cartão discreto no centro
+da tela. Se algo falhar, uma caixa de mensagem diz o quê e aponta o log.
+
+| Arquivo | Para que serve |
+|---------|----------------|
+| `Iniciar CIFRA.vbs` | O que o atalho executa. Também funciona com duplo clique |
+| `Parar CIFRA.vbs` | Encerra o servidor em segundo plano (os dados ficam intactos) |
+| `scripts\criar-atalho.ps1` | Cria os atalhos e gera o ícone. Rode de novo se mover a pasta |
+| `scripts\iniciar-cifra.ps1` | A lógica de subir o app; aceita `-Janela app` e `-SemNavegador` |
+| `logs\` | Saída do servidor e do build, para quando algo dá errado |
+
+Duas opções que valem conhecer:
+
+```powershell
+# Atalho que abre uma janela limpa, sem barra de endereço (cara de app de verdade)
+powershell -ExecutionPolicy Bypass -File scripts\criar-atalho.ps1 -Janela app
+
+# Só no menu Iniciar, sem sujar a área de trabalho
+powershell -ExecutionPolicy Bypass -File scripts\criar-atalho.ps1 -SomenteMenu
+```
+
+O servidor iniciado pelo atalho continua rodando em segundo plano até você usar
+`Parar CIFRA.vbs` ou desligar o computador — abrir o app de novo depois disso é
+instantâneo. Para desenvolver com hot reload, `npm run dev` continua sendo o
+caminho.
+
 ---
 
 ## Comandos disponíveis
@@ -125,6 +167,7 @@ mesma porta — é a forma mais simples de usar o app no dia a dia.
 | `npm run typecheck` | Checagem de tipos nos dois workspaces |
 | `npm run seed` | Preenche o banco com dados de demonstração |
 | `npm run db:reset` | Apaga o banco e recria vazio |
+| `npm run atalho` | Cria o atalho do Windows na área de trabalho e no menu Iniciar |
 
 ---
 
@@ -300,6 +343,7 @@ CIFRA/
 │       ├── pages/         Dashboard, Transações, Análises, Usuário, Ajustes
 │       └── types/         contratos da API
 │
+├── scripts/               atalho do Windows (iniciar, parar, criar atalho)
 ├── data/                  banco SQLite (criado em tempo de execução)
 └── package.json           workspaces + scripts
 ```

@@ -10,3 +10,7 @@ data/
 .DS_Store
 coverage/
 *.log
+
+# Gerados pelo atalho do Windows (scripts/criar-atalho.ps1)
+logs/
+scripts/cifra.ico
