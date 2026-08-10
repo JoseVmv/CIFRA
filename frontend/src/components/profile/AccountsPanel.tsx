@@ -5,7 +5,6 @@ import { IconPlus, IconTrash } from '../ui/Icons';
 import { Skeleton } from '../ui/States';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
-import { useApiResource } from '../../hooks/useApiResource';
 import { api, ApiError } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
 import { cn } from '../../lib/cn';
@@ -27,9 +26,8 @@ function message(error: unknown, fallback: string): string {
  * botão "salvar" global, então o total exibido é sempre o que está no banco.
  */
 export function AccountsPanel() {
-  const { version, refresh } = useFinance();
+  const { accounts, refresh } = useFinance();
   const { notify } = useToast();
-  const accounts = useApiResource(() => api.listAccounts(), [version]);
 
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState('');
@@ -41,8 +39,8 @@ export function AccountsPanel() {
     if (creating) draftRef.current?.focus();
   }, [creating]);
 
-  const items = accounts.data?.items ?? [];
-  const totalCents = accounts.data?.totalCents ?? 0;
+  const items = accounts ?? [];
+  const totalCents = items.reduce((sum, item) => sum + item.balanceCents, 0);
 
   async function addAccount(): Promise<void> {
     const name = draftName.trim();
@@ -65,7 +63,7 @@ export function AccountsPanel() {
     }
   }
 
-  if (accounts.isInitialLoading) {
+  if (accounts === null) {
     return (
       <div className="flex flex-col gap-2">
         <Skeleton className="h-11" />

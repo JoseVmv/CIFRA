@@ -6,6 +6,7 @@ export const RESET_CONFIRMATION = 'RESETAR';
 export interface ResetResult {
   deletedTransactions: number;
   deletedAccounts: number;
+  deletedBudgets: number;
   clearedSettings: boolean;
 }
 
@@ -21,11 +22,13 @@ export function createMaintenanceService(db: DatabaseSync) {
     try {
       const transactions = db.prepare('DELETE FROM transactions').run();
       const accounts = db.prepare('DELETE FROM accounts').run();
+      const budgets = db.prepare('DELETE FROM budgets').run();
       const settings = db.prepare('DELETE FROM settings').run();
       db.exec('COMMIT');
       return {
         deletedTransactions: Number(transactions.changes),
         deletedAccounts: Number(accounts.changes),
+        deletedBudgets: Number(budgets.changes),
         clearedSettings: Number(settings.changes) > 0,
       };
     } catch (error) {

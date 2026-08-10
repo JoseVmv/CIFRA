@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
-import { NotFoundError } from '../errors';
+import { NotFoundError, ValidationError } from '../errors';
 import type {
   Paginated,
   Transaction,
@@ -16,6 +16,8 @@ interface TransactionRow {
   description: string;
   category: string;
   date: string;
+  account_id: string | null;
+  account_name: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -25,6 +27,12 @@ const MAX_PAGE_SIZE = 500;
 /** Marcas de acentuação que o `normalize('NFD')` separa das letras. */
 const DIACRITICS = /[̀-ͯ]/g;
 
+/** Colunas + o nome da conta vinculada, resolvido por junção. */
+const SELECT_BASE = `
+  SELECT t.*, a.name AS account_name
+    FROM transactions t
+    LEFT JOIN accounts a ON a.id = t.account_id`;
+
 function toTransaction(row: TransactionRow): Transaction {
   return {
     id: row.id,
@@ -33,6 +41,8 @@ function toTransaction(row: TransactionRow): Transaction {
     description: row.description,
     category: row.category,
     date: row.date,
+    accountId: row.account_id,
+    accountName: row.account_name,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -65,24 +75,28 @@ function buildWhere(filters: TransactionFilters): WhereClause {
   const params: Array<string | number> = [];
 
   if (filters.type) {
-    conditions.push('type = ?');
+    conditions.push('t.type = ?');
     params.push(filters.type);
   }
   if (filters.category) {
-    conditions.push('category = ?');
+    conditions.push('t.category = ?');
     params.push(filters.category);
   }
+  if (filters.accountId) {
+    conditions.push('t.account_id = ?');
+    params.push(filters.accountId);
+  }
   if (filters.from) {
-    conditions.push('date >= ?');
+    conditions.push('t.date >= ?');
     params.push(filters.from);
   }
   if (filters.to) {
-    conditions.push('date <= ?');
+    conditions.push('t.date <= ?');
     params.push(filters.to);
   }
   const search = filters.search ? normalizeSearch(filters.search) : '';
   if (search) {
-    conditions.push("search_text LIKE ? ESCAPE '\\'");
+    conditions.push("t.search_text LIKE ? ESCAPE '\\'");
     params.push(`%${escapeLike(search)}%`);
   }
 
@@ -95,19 +109,30 @@ function buildWhere(filters: TransactionFilters): WhereClause {
 export type TransactionsService = ReturnType<typeof createTransactionsService>;
 
 export function createTransactionsService(db: DatabaseSync) {
-  const selectById = db.prepare('SELECT * FROM transactions WHERE id = ?');
+  const selectById = db.prepare(`${SELECT_BASE} WHERE t.id = ?`);
   const insert = db.prepare(
     `INSERT INTO transactions
-       (id, type, amount_cents, description, category, date, search_text, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+       (id, type, amount_cents, description, category, date, account_id,
+        search_text, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const updateStatement = db.prepare(
     `UPDATE transactions
         SET type = ?, amount_cents = ?, description = ?, category = ?, date = ?,
-            search_text = ?, updated_at = ?
+            account_id = ?, search_text = ?, updated_at = ?
       WHERE id = ?`,
   );
   const deleteStatement = db.prepare('DELETE FROM transactions WHERE id = ?');
+  const accountExists = db.prepare('SELECT 1 AS found FROM accounts WHERE id = ?');
+
+  /** Devolve o id validado, ou `null` quando a transação não tem conta. */
+  function resolveAccountId(accountId: string | null | undefined): string | null {
+    if (!accountId) return null;
+    if (!accountExists.get(accountId)) {
+      throw new ValidationError('A conta escolhida não existe mais. Selecione outra.');
+    }
+    return accountId;
+  }
 
   function findById(id: string): Transaction | null {
     const row = selectById.get(id) as TransactionRow | undefined;
@@ -128,13 +153,13 @@ export function createTransactionsService(db: DatabaseSync) {
     const offset = Math.max(filters.offset ?? 0, 0);
 
     const countRow = db
-      .prepare(`SELECT COUNT(*) AS total FROM transactions ${where.sql}`)
+      .prepare(`SELECT COUNT(*) AS total FROM transactions t ${where.sql}`)
       .get(...where.params) as { total: number };
 
     const rows = db
       .prepare(
-        `SELECT * FROM transactions ${where.sql}
-         ORDER BY date DESC, created_at DESC
+        `${SELECT_BASE} ${where.sql}
+         ORDER BY t.date DESC, t.created_at DESC
          LIMIT ? OFFSET ?`,
       )
       .all(...where.params, limit, offset) as unknown as TransactionRow[];
@@ -152,6 +177,7 @@ export function createTransactionsService(db: DatabaseSync) {
       input.description,
       input.category,
       input.date,
+      resolveAccountId(input.accountId),
       normalizeSearch(`${input.description} ${input.category}`),
       now,
       now,
@@ -167,6 +193,7 @@ export function createTransactionsService(db: DatabaseSync) {
       input.description,
       input.category,
       input.date,
+      resolveAccountId(input.accountId),
       normalizeSearch(`${input.description} ${input.category}`),
       new Date().toISOString(),
       id,

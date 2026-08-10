@@ -10,6 +10,8 @@ export const MAX_DESCRIPTION_LENGTH = 140;
 export const MAX_CATEGORY_LENGTH = 40;
 export const MAX_ACCOUNT_NAME_LENGTH = 40;
 export const MAX_NAME_LENGTH = 60;
+/** Dois anos é o teto de uma janela de limite de gasto. */
+export const MAX_BUDGET_MONTHS = 24;
 
 const MIN_DATE = '1900-01-01';
 const MAX_DATE = '2100-12-31';
@@ -30,6 +32,13 @@ export const transactionBodySchema = z.object({
   description: z.string().trim().min(1).max(MAX_DESCRIPTION_LENGTH),
   category: z.string().trim().min(1).max(MAX_CATEGORY_LENGTH),
   date: isoDateSchema,
+  accountId: z.string().trim().min(1).max(64).nullish(),
+});
+
+export const budgetBodySchema = z.object({
+  category: z.string().trim().min(1).max(MAX_CATEGORY_LENGTH),
+  limitCents: z.number().int().positive().max(MAX_AMOUNT_CENTS),
+  months: z.number().int().min(1).max(MAX_BUDGET_MONTHS),
 });
 
 const balanceCentsSchema = z.number().int().min(-MAX_AMOUNT_CENTS).max(MAX_AMOUNT_CENTS);
@@ -52,14 +61,24 @@ export const listQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   category: z.string().trim().max(MAX_CATEGORY_LENGTH).optional(),
   type: z.enum(['income', 'expense']).optional(),
+  accountId: z.string().trim().max(64).optional(),
   period: z.enum(PERIOD_KEYS as unknown as [string, ...string[]]).optional(),
+  /** Mês em torno do qual o período é calculado — é o que permite navegar. */
+  reference: isoDateSchema.optional(),
   from: isoDateSchema.optional(),
   to: isoDateSchema.optional(),
   limit: z.coerce.number().int().min(1).max(500).optional(),
   offset: z.coerce.number().int().min(0).optional(),
 });
 
-export const rangeQuerySchema = listQuerySchema.pick({ period: true, from: true, to: true });
+export const rangeQuerySchema = listQuerySchema.pick({
+  period: true,
+  reference: true,
+  from: true,
+  to: true,
+});
+
+export const referenceQuerySchema = listQuerySchema.pick({ reference: true });
 
 export const idParamSchema = z.object({
   id: z.string().trim().min(1).max(64),
@@ -83,6 +102,10 @@ const FIELD_MESSAGES: Record<string, string> = {
   from: 'Data inicial inválida.',
   to: 'Data final inválida.',
   period: 'Período inválido.',
+  reference: 'Mês de referência inválido.',
+  accountId: 'Conta inválida.',
+  limitCents: 'Informe um limite maior que zero.',
+  months: `Escolha um período entre 1 e ${MAX_BUDGET_MONTHS} meses.`,
   limit: 'Quantidade de itens inválida.',
   offset: 'Paginação inválida.',
   initialBalanceCents: 'Informe um saldo inicial válido.',

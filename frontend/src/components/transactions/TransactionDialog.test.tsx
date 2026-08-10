@@ -59,7 +59,32 @@ beforeEach(() => {
     income: ['Salário', 'Freelance'],
     expense: ['Alimentação', 'Transporte'],
   });
+  mockedApi.listAccounts.mockResolvedValue({ items: [], totalCents: 0 });
 });
+
+/** Liga o modo de múltiplas contas com as contas informadas. */
+function withAccounts(names: string[]): void {
+  mockedApi.getSettings.mockResolvedValue({
+    initialBalanceCents: 0,
+    manualInitialBalanceCents: 0,
+    useMultipleAccounts: true,
+    accountsTotalCents: 0,
+    displayName: '',
+    currency: 'BRL',
+    updatedAt: new Date().toISOString(),
+  });
+  mockedApi.listAccounts.mockResolvedValue({
+    items: names.map((name, index) => ({
+      id: `conta-${index}`,
+      name,
+      balanceCents: 0,
+      position: index,
+      createdAt: '2026-08-01T12:00:00.000Z',
+      updatedAt: '2026-08-01T12:00:00.000Z',
+    })),
+    totalCents: 0,
+  });
+}
 
 describe('diálogo de transação', () => {
   it('converte o que é digitado em um valor monetário formatado', async () => {
@@ -96,6 +121,8 @@ describe('diálogo de transação', () => {
       description: 'Combustível',
       category: 'Transporte',
       date: '2026-08-09',
+      accountId: null,
+      accountName: null,
       createdAt: '2026-08-09T12:00:00.000Z',
       updatedAt: '2026-08-09T12:00:00.000Z',
     });
@@ -146,6 +173,65 @@ describe('diálogo de transação', () => {
     expect(alert.textContent).toContain('Informe um valor maior que zero.');
   });
 
+  it('não pede conta quando o modo de múltiplas contas está desligado', async () => {
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+    await waitFor(() => expect(mockedApi.getCategories).toHaveBeenCalled());
+
+    expect(screen.queryByLabelText('Conta')).toBeNull();
+  });
+
+  it('exige a conta quando o modo de múltiplas contas está ligado', async () => {
+    const user = userEvent.setup();
+    withAccounts(['Nubank', 'Itaú']);
+    mockedApi.createTransaction.mockResolvedValue({
+      id: 'abc',
+      type: 'expense',
+      amountCents: 8000,
+      description: 'Combustível',
+      category: 'Transporte',
+      date: '2026-08-09',
+      accountId: 'conta-0',
+      accountName: 'Nubank',
+      createdAt: '2026-08-09T12:00:00.000Z',
+      updatedAt: '2026-08-09T12:00:00.000Z',
+    });
+
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    const accountField = await screen.findByLabelText('Conta');
+    await user.type(screen.getByLabelText('Valor'), '8000');
+    await user.type(screen.getByLabelText('Descrição'), 'Combustível');
+    await user.selectOptions(screen.getByLabelText('Categoria'), 'Transporte');
+
+    // Sem escolher a conta, o envio é bloqueado.
+    await user.click(screen.getByRole('button', { name: 'Adicionar' }));
+    expect(await screen.findByText('Escolha a conta desta transação.')).toBeTruthy();
+    expect(mockedApi.createTransaction).not.toHaveBeenCalled();
+
+    await user.selectOptions(accountField, 'Nubank');
+    await user.click(screen.getByRole('button', { name: 'Adicionar' }));
+
+    await waitFor(() =>
+      expect(mockedApi.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({ accountId: 'conta-0' }),
+      ),
+    );
+  });
+
+  it('orienta a cadastrar contas quando o modo está ligado mas não há nenhuma', async () => {
+    withAccounts([]);
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    expect(await screen.findByText(/ainda não cadastrou nenhuma/)).toBeTruthy();
+    expect(screen.queryByLabelText('Conta')).toBeNull();
+  });
+
   it('abre já preenchido ao editar uma transação existente', async () => {
     renderDialog(
       <TransactionDialog
@@ -159,6 +245,8 @@ describe('diálogo de transação', () => {
           description: 'Salário de agosto',
           category: 'Salário',
           date: '2026-08-05',
+          accountId: null,
+          accountName: null,
           createdAt: '2026-08-05T12:00:00.000Z',
           updatedAt: '2026-08-05T12:00:00.000Z',
         }}

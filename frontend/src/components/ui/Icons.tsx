@@ -125,6 +125,32 @@ export const IconScales = (props: IconProps) => (
   </Icon>
 );
 
+export const IconChevronLeft = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="m14 6-6 6 6 6" />
+  </Icon>
+);
+
+export const IconChevronRight = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="m10 6 6 6-6 6" />
+  </Icon>
+);
+
+export const IconAlert = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M12 9v4M12 17h.01M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z" />
+  </Icon>
+);
+
+export const IconTarget = (props: IconProps) => (
+  <Icon {...props}>
+    <circle cx="12" cy="12" r="9" />
+    <circle cx="12" cy="12" r="5" />
+    <circle cx="12" cy="12" r="1" />
+  </Icon>
+);
+
 export const IconUser = (props: IconProps) => (
   <Icon {...props}>
     <circle cx="12" cy="8" r="4" />

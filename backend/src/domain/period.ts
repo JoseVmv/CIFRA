@@ -7,8 +7,21 @@ export function isPeriodKey(value: string): value is PeriodKey {
   return (PERIOD_KEYS as readonly string[]).includes(value);
 }
 
+/** Quantos meses cada período abrange — usado para navegar e para comparar. */
+const PERIOD_MONTHS: Record<Exclude<PeriodKey, 'all'>, number> = {
+  month: 1,
+  '3m': 3,
+  '6m': 6,
+  year: 12,
+};
+
 interface ResolveOptions {
   period?: PeriodKey;
+  /**
+   * Data em torno da qual o período é montado (`YYYY-MM-DD`). É o que permite
+   * navegar para meses anteriores sem mexer no relógio.
+   */
+  reference?: string;
   from?: string;
   to?: string;
   now?: Date;
@@ -20,29 +33,55 @@ interface ResolveOptions {
  *
  * Os períodos são **meses de calendário fechados**, não janelas móveis: "Este mês"
  * vai do dia 1 ao último dia do mês, e "Últimos 3 meses" cobre três meses inteiros
- * incluindo o atual. Assim a comparação entre períodos é sempre entre meses
- * equivalentes.
+ * terminando no mês da referência.
  *
  * Em "Tudo" os dois limites ficam abertos (`null`) — nada é recortado, nem
  * lançamentos antigos nem datas futuras.
  */
-export function resolveRange({ period = 'month', from, to, now }: ResolveOptions): DateRange {
-  const reference = to ?? today(now);
+export function resolveRange({
+  period = 'month',
+  reference,
+  from,
+  to,
+  now,
+}: ResolveOptions): DateRange {
+  const anchor = reference ?? to ?? today(now);
 
   if (from || to) {
-    return { from: from ?? null, to: reference, period: 'custom' };
+    return { from: from ?? null, to: to ?? anchor, period: 'custom' };
   }
 
   switch (period) {
     case 'month':
-      return { from: startOfMonth(reference), to: endOfMonth(reference), period };
+      return { from: startOfMonth(anchor), to: endOfMonth(anchor), period };
     case '3m':
-      return { from: startOfMonth(addMonths(reference, -2)), to: endOfMonth(reference), period };
+      return { from: startOfMonth(addMonths(anchor, -2)), to: endOfMonth(anchor), period };
     case '6m':
-      return { from: startOfMonth(addMonths(reference, -5)), to: endOfMonth(reference), period };
+      return { from: startOfMonth(addMonths(anchor, -5)), to: endOfMonth(anchor), period };
     case 'year':
-      return { from: startOfYear(reference), to: endOfYear(reference), period };
+      return { from: startOfYear(anchor), to: endOfYear(anchor), period };
     case 'all':
       return { from: null, to: null, period };
   }
+}
+
+/**
+ * Janela imediatamente anterior e de mesmo tamanho — a base do comparativo.
+ * "Tudo" não tem anterior, então devolve `null`.
+ */
+export function previousRange({
+  period = 'month',
+  reference,
+  now,
+}: Pick<ResolveOptions, 'period' | 'reference' | 'now'>): DateRange | null {
+  if (period === 'all') return null;
+
+  const anchor = reference ?? today(now);
+  const months = PERIOD_MONTHS[period];
+  return resolveRange({ period, reference: addMonths(anchor, -months) });
+}
+
+/** Quantos meses o período avança ou recua a cada clique nas setas. */
+export function periodStepInMonths(period: PeriodKey): number {
+  return period === 'all' ? 0 : PERIOD_MONTHS[period];
 }

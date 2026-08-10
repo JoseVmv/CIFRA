@@ -1,7 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../db/connection';
 import { addDays, daysBetween, eachDay, endOfMonth, isValidIsoDate, today } from '../domain/dates';
-import { resolveRange } from '../domain/period';
+import { previousRange, resolveRange } from '../domain/period';
 import { createServices, type Services } from '.';
 import { transactionBodySchema } from '../http/validation';
 
@@ -499,6 +499,7 @@ describe('reset total', () => {
     expect(services.maintenance.resetAll()).toEqual({
       deletedTransactions: 0,
       deletedAccounts: 0,
+      deletedBudgets: 0,
       clearedSettings: false,
     });
   });
@@ -618,6 +619,360 @@ describe('utilitários de data e período', () => {
     const reference = new Date(2026, 2, 31); // 31/03/2026 — fevereiro não tem dia 31
     expect(resolveRange({ period: '3m', now: reference }).from).toBe('2026-01-01');
     expect(resolveRange({ period: 'month', now: reference }).to).toBe('2026-03-31');
+  });
+});
+
+describe('navegação entre períodos', () => {
+  it('monta o período em torno da data de referência, não de hoje', () => {
+    expect(resolveRange({ period: 'month', reference: '2026-05-17' })).toEqual({
+      from: '2026-05-01',
+      to: '2026-05-31',
+      period: 'month',
+    });
+    expect(resolveRange({ period: '3m', reference: '2025-02-10' })).toEqual({
+      from: '2024-12-01',
+      to: '2025-02-28',
+      period: '3m',
+    });
+    expect(resolveRange({ period: 'year', reference: '2024-06-30' }).from).toBe('2024-01-01');
+  });
+
+  it('recua uma janela inteira no período anterior', () => {
+    expect(previousRange({ period: 'month', reference: '2026-08-15' })).toEqual({
+      from: '2026-07-01',
+      to: '2026-07-31',
+      period: 'month',
+    });
+    expect(previousRange({ period: '3m', reference: '2026-08-15' })).toEqual({
+      from: '2026-03-01',
+      to: '2026-05-31',
+      period: '3m',
+    });
+    expect(previousRange({ period: 'year', reference: '2026-08-15' })?.from).toBe('2025-01-01');
+  });
+
+  it('não existe período anterior a "Tudo"', () => {
+    expect(previousRange({ period: 'all', reference: '2026-08-15' })).toBeNull();
+  });
+
+  it('atravessa a virada de ano ao recuar', () => {
+    expect(previousRange({ period: 'month', reference: '2026-01-10' })?.from).toBe('2025-12-01');
+  });
+
+  it('lê o consumo de meses passados sem alterar o saldo atual', () => {
+    const services = setup();
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 40_000,
+      description: 'Gasto de junho',
+      category: 'Lazer',
+      date: '2026-06-12',
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 10_000,
+      description: 'Gasto de agosto',
+      category: 'Lazer',
+      date: '2026-08-12',
+    });
+
+    const june = services.analytics.getSummary(resolveRange({ period: 'month', reference: '2026-06-20' }));
+    const august = services.analytics.getSummary(resolveRange({ period: 'month', reference: '2026-08-20' }));
+
+    expect(june.expenseCents).toBe(40_000);
+    expect(august.expenseCents).toBe(10_000);
+    expect(june.currentBalanceCents).toBe(august.currentBalanceCents);
+  });
+});
+
+describe('comparativo com o período anterior', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+    // Julho
+    services.transactions.create({
+      type: 'income',
+      amountCents: 400_000,
+      description: 'Salário',
+      category: 'Salário',
+      date: '2026-07-05',
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 200_000,
+      description: 'Gastos de julho',
+      category: 'Compras',
+      date: '2026-07-20',
+    });
+    // Agosto
+    services.transactions.create({
+      type: 'income',
+      amountCents: 500_000,
+      description: 'Salário',
+      category: 'Salário',
+      date: '2026-08-05',
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 150_000,
+      description: 'Gastos de agosto',
+      category: 'Compras',
+      date: '2026-08-20',
+    });
+  });
+
+  function statisticsFor(reference: string) {
+    return services.analytics.getStatistics(
+      resolveRange({ period: 'month', reference }),
+      previousRange({ period: 'month', reference }),
+    );
+  }
+
+  it('traz os totais do mês anterior e a variação percentual', () => {
+    const { comparison } = statisticsFor('2026-08-15');
+
+    expect(comparison?.range.from).toBe('2026-07-01');
+    expect(comparison?.totals.incomeCents).toBe(400_000);
+    expect(comparison?.totals.expenseCents).toBe(200_000);
+    expect(comparison?.incomeChangePercent).toBe(25); // 400k → 500k
+    expect(comparison?.expenseChangePercent).toBe(-25); // 200k → 150k
+  });
+
+  it('devolve variação nula quando o período anterior foi zero', () => {
+    const { comparison } = statisticsFor('2026-07-15');
+    expect(comparison?.totals.incomeCents).toBe(0);
+    expect(comparison?.incomeChangePercent).toBeNull();
+  });
+
+  it('não compara quando não há período anterior', () => {
+    const statistics = services.analytics.getStatistics(resolveRange({ period: 'all' }), null);
+    expect(statistics.comparison).toBeNull();
+  });
+});
+
+describe('limites de gastos por categoria', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 30_000,
+      description: 'Cinema',
+      category: 'Lazer',
+      date: '2026-08-04',
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 25_000,
+      description: 'Bar',
+      category: 'Lazer',
+      date: '2026-08-18',
+    });
+    // Mês anterior: só entra na janela quando o limite abrange 2+ meses.
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 40_000,
+      description: 'Show',
+      category: 'Lazer',
+      date: '2026-07-10',
+    });
+    // Outra categoria não conta.
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 90_000,
+      description: 'Mercado',
+      category: 'Alimentação',
+      date: '2026-08-06',
+    });
+    // Entradas nunca contam num limite de gasto.
+    services.transactions.create({
+      type: 'income',
+      amountCents: 70_000,
+      description: 'Reembolso do show',
+      category: 'Lazer',
+      date: '2026-08-19',
+    });
+  });
+
+  it('soma apenas as saídas da categoria dentro da janela', () => {
+    services.budgets.create({ category: 'Lazer', limitCents: 100_000, months: 1 });
+
+    const [budget] = services.budgets.listWithUsage('2026-08-15');
+    expect(budget?.window).toEqual({ from: '2026-08-01', to: '2026-08-31' });
+    expect(budget?.spentCents).toBe(55_000);
+    expect(budget?.remainingCents).toBe(45_000);
+    expect(budget?.percent).toBe(55);
+    expect(budget?.status).toBe('ok');
+  });
+
+  it('a janela cresce conforme o número de meses escolhido', () => {
+    services.budgets.create({ category: 'Lazer', limitCents: 200_000, months: 2 });
+
+    const [budget] = services.budgets.listWithUsage('2026-08-15');
+    expect(budget?.window).toEqual({ from: '2026-07-01', to: '2026-08-31' });
+    expect(budget?.spentCents).toBe(95_000); // inclui o show de julho
+  });
+
+  it('avisa a partir de 90% e marca o estouro acima de 100%', () => {
+    const budget = services.budgets.create({ category: 'Lazer', limitCents: 60_000, months: 1 });
+    expect(services.budgets.listWithUsage('2026-08-15')[0]?.status).toBe('warning');
+    expect(services.budgets.listWithUsage('2026-08-15')[0]?.percent).toBeCloseTo(91.7, 1);
+
+    services.budgets.update(budget.id, { category: 'Lazer', limitCents: 50_000, months: 1 });
+    const exceeded = services.budgets.listWithUsage('2026-08-15')[0];
+    expect(exceeded?.status).toBe('exceeded');
+    expect(exceeded?.percent).toBe(110);
+    expect(exceeded?.remainingCents).toBe(-5_000);
+  });
+
+  it('acompanha o mês de referência escolhido', () => {
+    services.budgets.create({ category: 'Lazer', limitCents: 100_000, months: 1 });
+    expect(services.budgets.listWithUsage('2026-07-15')[0]?.spentCents).toBe(40_000);
+    expect(services.budgets.listWithUsage('2026-05-15')[0]?.spentCents).toBe(0);
+  });
+
+  it('recusa dois limites para a mesma categoria', () => {
+    services.budgets.create({ category: 'Lazer', limitCents: 100_000, months: 1 });
+    expect(() => services.budgets.create({ category: 'Lazer', limitCents: 50_000, months: 1 })).toThrowError(
+      /Já existe um limite/i,
+    );
+  });
+
+  it('edita e exclui limites', () => {
+    const budget = services.budgets.create({ category: 'Lazer', limitCents: 100_000, months: 1 });
+
+    const updated = services.budgets.update(budget.id, {
+      category: 'Alimentação',
+      limitCents: 120_000,
+      months: 3,
+    });
+    expect(updated.category).toBe('Alimentação');
+    expect(updated.months).toBe(3);
+
+    services.budgets.remove(budget.id);
+    expect(services.budgets.count()).toBe(0);
+    expect(() => services.budgets.remove(budget.id)).toThrowError(/não encontrado/i);
+  });
+
+  it('o reset também apaga os limites', () => {
+    services.budgets.create({ category: 'Lazer', limitCents: 100_000, months: 1 });
+    expect(services.maintenance.resetAll().deletedBudgets).toBe(1);
+    expect(services.budgets.count()).toBe(0);
+  });
+});
+
+describe('transações vinculadas a contas', () => {
+  let services: Services;
+  let nubank: { id: string; name: string };
+
+  beforeEach(() => {
+    services = setup();
+    nubank = services.accounts.create({ name: 'Nubank', balanceCents: 100_000 });
+  });
+
+  it('guarda o vínculo e devolve o nome da conta', () => {
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 5_000,
+      description: 'Almoço',
+      category: 'Alimentação',
+      date: TODAY,
+      accountId: nubank.id,
+    });
+
+    expect(created.accountId).toBe(nubank.id);
+    expect(created.accountName).toBe('Nubank');
+  });
+
+  it('aceita transação sem conta', () => {
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 5_000,
+      description: 'Almoço',
+      category: 'Alimentação',
+      date: TODAY,
+    });
+
+    expect(created.accountId).toBeNull();
+    expect(created.accountName).toBeNull();
+  });
+
+  it('recusa uma conta inexistente', () => {
+    expect(() =>
+      services.transactions.create({
+        type: 'expense',
+        amountCents: 5_000,
+        description: 'Almoço',
+        category: 'Alimentação',
+        date: TODAY,
+        accountId: 'nao-existe',
+      }),
+    ).toThrowError(/conta escolhida não existe/i);
+  });
+
+  it('filtra o histórico por conta', () => {
+    const itau = services.accounts.create({ name: 'Itaú', balanceCents: 0 });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 5_000,
+      description: 'Almoço',
+      category: 'Alimentação',
+      date: TODAY,
+      accountId: nubank.id,
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 8_000,
+      description: 'Uber',
+      category: 'Transporte',
+      date: TODAY,
+      accountId: itau.id,
+    });
+
+    expect(services.transactions.list({ accountId: nubank.id }).total).toBe(1);
+    expect(services.transactions.list({ accountId: itau.id }).items[0]?.description).toBe('Uber');
+  });
+
+  it('apagar a conta preserva a transação, apenas desvinculando', () => {
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 5_000,
+      description: 'Almoço',
+      category: 'Alimentação',
+      date: TODAY,
+      accountId: nubank.id,
+    });
+
+    services.accounts.remove(nubank.id);
+
+    const kept = services.transactions.getById(created.id);
+    expect(kept.accountId).toBeNull();
+    expect(kept.amountCents).toBe(5_000);
+    expect(services.transactions.count()).toBe(1);
+  });
+
+  it('permite desvincular na edição', () => {
+    const created = services.transactions.create({
+      type: 'expense',
+      amountCents: 5_000,
+      description: 'Almoço',
+      category: 'Alimentação',
+      date: TODAY,
+      accountId: nubank.id,
+    });
+
+    const updated = services.transactions.update(created.id, {
+      type: 'expense',
+      amountCents: 5_000,
+      description: 'Almoço',
+      category: 'Alimentação',
+      date: TODAY,
+      accountId: null,
+    });
+
+    expect(updated.accountId).toBeNull();
   });
 });
 

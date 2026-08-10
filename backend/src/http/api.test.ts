@@ -237,6 +237,107 @@ describe('API', () => {
     expect(body.error.message).toMatch(/nome/i);
   });
 
+  it('monta o período em torno do mês de referência', async () => {
+    const { status, body } = await api('/api/summary?period=month&reference=2026-05-17');
+    expect(status).toBe(200);
+    expect(body.range.from).toBe('2026-05-01');
+    expect(body.range.to).toBe('2026-05-31');
+  });
+
+  it('recusa uma referência inválida', async () => {
+    const { status, body } = await api('/api/summary?period=month&reference=maio');
+    expect(status).toBe(422);
+    expect(body.error.message).toBe('Mês de referência inválido.');
+  });
+
+  it('inclui o comparativo com o período anterior nas estatísticas', async () => {
+    const { body } = await api('/api/statistics?period=month&reference=2026-08-15');
+    expect(body.comparison.range.from).toBe('2026-07-01');
+    expect(body.comparison.range.to).toBe('2026-07-31');
+    expect(body.comparison).toHaveProperty('incomeChangePercent');
+  });
+
+  it('não traz comparativo no período "Tudo"', async () => {
+    const { body } = await api('/api/statistics?period=all');
+    expect(body.comparison).toBeNull();
+  });
+
+  it('vincula uma transação a uma conta e permite filtrar por ela', async () => {
+    const conta = await api('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Banco do Teste', balanceCents: 0 }),
+    });
+
+    const created = await api('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify({ ...newExpense, accountId: conta.body.id }),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.accountId).toBe(conta.body.id);
+    expect(created.body.accountName).toBe('Banco do Teste');
+
+    const filtered = await api(`/api/transactions?accountId=${conta.body.id}`);
+    expect(filtered.body.total).toBe(1);
+
+    // Apagar a conta desvincula, mas não apaga o lançamento.
+    await api(`/api/accounts/${conta.body.id}`, { method: 'DELETE' });
+    const kept = await api(`/api/transactions/${created.body.id}`);
+    expect(kept.body.accountId).toBeNull();
+
+    await api(`/api/transactions/${created.body.id}`, { method: 'DELETE' });
+  });
+
+  it('recusa transação com conta inexistente', async () => {
+    const { status, body } = await api('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify({ ...newExpense, accountId: 'conta-fantasma' }),
+    });
+    expect(status).toBe(422);
+    expect(body.error.message).toMatch(/conta escolhida não existe/i);
+  });
+
+  it('gerencia limites de gasto com o consumo calculado', async () => {
+    await api('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'expense',
+        amountCents: 45_000,
+        description: 'Cinema',
+        category: 'Lazer',
+        date: '2026-08-10',
+      }),
+    });
+
+    const created = await api('/api/budgets', {
+      method: 'POST',
+      body: JSON.stringify({ category: 'Lazer', limitCents: 50_000, months: 1 }),
+    });
+    expect(created.status).toBe(201);
+
+    const listed = await api('/api/budgets?reference=2026-08-15');
+    const budget = listed.body.items[0];
+    expect(budget.spentCents).toBe(45_000);
+    expect(budget.percent).toBe(90);
+    expect(budget.status).toBe('warning');
+    expect(budget.window).toEqual({ from: '2026-08-01', to: '2026-08-31' });
+
+    const duplicated = await api('/api/budgets', {
+      method: 'POST',
+      body: JSON.stringify({ category: 'Lazer', limitCents: 10_000, months: 1 }),
+    });
+    expect(duplicated.status).toBe(409);
+
+    const invalid = await api('/api/budgets', {
+      method: 'POST',
+      body: JSON.stringify({ category: 'Lazer', limitCents: 0, months: 1 }),
+    });
+    expect(invalid.status).toBe(422);
+    expect(invalid.body.error.message).toBe('Informe um limite maior que zero.');
+
+    expect((await api(`/api/budgets/${created.body.id}`, { method: 'DELETE' })).status).toBe(204);
+    expect((await api('/api/budgets')).body.items).toHaveLength(0);
+  });
+
   it('recusa apagar tudo sem a confirmação explícita', async () => {
     await api('/api/transactions', { method: 'POST', body: JSON.stringify(newExpense) });
 

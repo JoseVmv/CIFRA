@@ -42,6 +42,11 @@
   --expense-text: #a32e2a;
   --expense-soft: #fbeceb;
 
+  /* Estado de alerta dos limites de gasto — sempre acompanhado de rótulo. */
+  --warning: #c2710c;
+  --warning-text: #90540a;
+  --warning-soft: #fdf1e0;
+
   --grid: #eeedea;
   --axis: #d7d6d0;
 
@@ -79,6 +84,10 @@
   --expense-text: #e5776c;
   --expense-soft: #2a1715;
 
+  --warning: #cf8a2f;
+  --warning-text: #e3a95c;
+  --warning-soft: #2b1f0f;
+
   --grid: #212125;
   --axis: #34343a;
 
@@ -113,6 +122,10 @@
   --color-expense: var(--expense);
   --color-expense-text: var(--expense-text);
   --color-expense-soft: var(--expense-soft);
+
+  --color-warning: var(--warning);
+  --color-warning-text: var(--warning-text);
+  --color-warning-soft: var(--warning-soft);
 
   --font-sans: system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif;
 

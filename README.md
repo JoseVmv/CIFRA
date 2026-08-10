@@ -19,17 +19,22 @@ múltiplas contas, da soma das contas cadastradas.
 
 - **Dashboard** com saldo atual, entradas, saídas e resultado do período.
 - **Seletor de período por mês de calendário**: este mês, últimos 3 meses,
-  últimos 6 meses, este ano ou tudo. Cards e gráficos respondem juntos.
+  últimos 6 meses, este ano ou tudo, com **setas para navegar** entre meses
+  passados. Cards e gráficos respondem juntos.
 - **Nova transação** em um diálogo rápido (entrada ou saída, valor, descrição,
   categoria e data), com confirmação visual e sem recarregar a página.
 - **Histórico** agrupado por dia, com busca por descrição (ignora acentos e
   maiúsculas), filtros de tipo, categoria e período, além de edição e exclusão.
-- **Análises**: entradas × saídas por dia, evolução do saldo acumulado e
-  distribuição por categoria. Todo gráfico tem uma visão em tabela equivalente.
+- **Análises**: entradas × saídas por dia, evolução do saldo acumulado,
+  distribuição por categoria e **comparativo com o período anterior**. Todo
+  gráfico tem uma visão em tabela equivalente.
+- **Limites de gastos** por categoria, cada um com sua janela em meses. Ao passar
+  de 90% do limite, o painel principal mostra um aviso que pode ser fechado.
 - **Aba Usuário** com as configurações pessoais: seu nome e o saldo inicial,
   alterável a qualquer momento sem tocar no histórico.
 - **Múltiplas contas** (opcional): cadastre seus bancos e carteiras e o saldo
-  inicial passa a ser a soma deles.
+  inicial passa a ser a soma deles. Com a opção ligada, cada transação é
+  vinculada a uma conta, e o histórico pode ser filtrado por ela.
 - **Resetar tudo** direto pela interface, em Ajustes, com confirmação por digitação.
 - **Tema claro e escuro**, responsivo de celular a desktop.
 
@@ -132,20 +137,25 @@ data/finance.sqlite
 Um único arquivo na raiz do projeto (criado no primeiro uso, junto com os
 arquivos `-wal`/`-shm` do SQLite). **Para fazer backup, basta copiar essa pasta.**
 
-O schema tem três tabelas:
+O schema tem quatro tabelas:
 
 ```text
-transactions                    accounts               settings
-├── id (uuid)                   ├── id (uuid)          ├── key
-├── type (income | expense)     ├── name               ├── value
-├── amount_cents (inteiro > 0)  ├── balance_cents      └── updated_at
-├── description                 ├── position
-├── category                    ├── created_at
-├── date (YYYY-MM-DD)           └── updated_at
-├── search_text  → texto normalizado (busca sem acento)
-├── created_at
-└── updated_at
+transactions                    accounts               budgets
+├── id (uuid)                   ├── id (uuid)          ├── id (uuid)
+├── type (income | expense)     ├── name               ├── category (única)
+├── amount_cents (inteiro > 0)  ├── balance_cents      ├── limit_cents
+├── description                 ├── position           ├── months (1–24)
+├── category                    ├── created_at         ├── created_at
+├── date (YYYY-MM-DD)           └── updated_at         └── updated_at
+├── account_id  → conta vinculada (nulo se não usa contas)
+├── search_text → texto normalizado (busca sem acento)      settings
+├── created_at                                              ├── key
+└── updated_at                                              ├── value
+                                                            └── updated_at
 ```
+
+Apagar uma conta **não apaga** as transações dela: o vínculo vira nulo
+(`ON DELETE SET NULL`), então o histórico e o saldo permanecem intactos.
 
 O saldo inicial vive em `settings`, não como transação — assim ele pode ser
 alterado quantas vezes for preciso sem inventar lançamentos no histórico. Com
@@ -210,13 +220,15 @@ Base: `/api`
 | Método | Rota | Descrição |
 |--------|------|-----------|
 | `GET` | `/health` | Verificação de saúde |
-| `GET` | `/transactions` | Lista com filtros `search`, `type`, `category`, `period`, `from`, `to`, `limit`, `offset` |
+| `GET` | `/transactions` | Lista com filtros `search`, `type`, `category`, `accountId`, `period`, `reference`, `from`, `to`, `limit`, `offset` |
 | `GET` | `/transactions/:id` | Uma transação |
 | `POST` | `/transactions` | Cria |
 | `PUT` | `/transactions/:id` | Atualiza |
 | `DELETE` | `/transactions/:id` | Exclui |
-| `GET` | `/summary?period=30d` | Saldo atual, entradas, saídas, resultado e saldo de abertura |
-| `GET` | `/statistics?period=30d` | Série temporal + distribuição por categoria |
+| `GET` | `/summary?period=month` | Saldo atual, entradas, saídas, resultado e saldo de abertura |
+| `GET` | `/statistics?period=month` | Série temporal, distribuição por categoria e comparativo com o período anterior |
+| `GET` `POST` | `/budgets` | Limites de gasto, já com o consumo calculado |
+| `PUT` `DELETE` | `/budgets/:id` | Edita e remove um limite |
 | `GET` | `/settings` · `PUT` `/settings` | Nome, saldo inicial, múltiplas contas |
 | `GET` `POST` | `/accounts` | Lista e cria contas |
 | `PUT` `DELETE` | `/accounts/:id` | Edita e remove uma conta |
@@ -225,8 +237,13 @@ Base: `/api`
 
 `period` aceita `month`, `3m`, `6m`, `year` ou `all` — todos são **meses de
 calendário fechados**, do dia 1 ao último dia do mês, e não janelas móveis de N
-dias. Em `all` os dois limites ficam abertos. Valores monetários entram e saem
-sempre em **centavos inteiros**.
+dias. Em `all` os dois limites ficam abertos.
+
+`reference` (`YYYY-MM-DD`) desloca a janela: `?period=month&reference=2026-05-17`
+devolve maio inteiro. É o que faz as setas de navegação funcionarem, sem estado
+no servidor.
+
+Valores monetários entram e saem sempre em **centavos inteiros**.
 
 <details>
 <summary>Exemplo de criação</summary>
@@ -299,7 +316,7 @@ descartável, sem mocks.
 npm test
 ```
 
-**Backend (78 testes)** — a lógica financeira é o foco:
+**Backend (106 testes)** — a lógica financeira é o foco:
 
 - saldo inicial + entradas − saídas, incluindo alteração do saldo inicial sem
   perder histórico;
@@ -310,6 +327,14 @@ npm test
   acumulado; granularidade diária até 92 dias e mensal acima disso;
 - múltiplas contas: soma como saldo inicial, preservação do valor digitado ao
   alternar a opção e reflexo imediato de inclusões e remoções;
+- transações vinculadas a contas: nome resolvido por junção, filtro por conta,
+  recusa de conta inexistente e preservação do lançamento ao apagar a conta;
+- navegação entre períodos: janela em torno da referência, período anterior de
+  mesmo tamanho e virada de ano;
+- limites de gasto: janela de N meses, soma só das saídas da categoria, aviso a
+  partir de 90%, estouro acima de 100% e recusa de limite duplicado;
+- comparativo: totais do período anterior e variação percentual, inclusive
+  quando a base é zero;
 - distribuição por categoria e percentuais;
 - validação de valores (zero, negativo, fracionado, absurdo), descrições e datas;
 - filtros, busca sem acento e paginação;
@@ -317,10 +342,11 @@ npm test
 - API completa por HTTP: códigos de status, mensagens amigáveis, JSON inválido,
   rota inexistente e ausência de stack trace nas respostas.
 
-**Frontend (18 testes)** — formatação monetária, o fluxo do diálogo de transação
-(digitação convertida em centavos, bloqueio com mensagens de erro, envio
-bem-sucedido, erro do servidor e edição pré-preenchida) e o painel de contas
-(listagem com soma, inclusão, edição ao sair do campo e remoção).
+**Frontend (31 testes)** — formatação monetária, aritmética de meses e rótulos de
+janela, o fluxo do diálogo de transação (digitação convertida em centavos,
+bloqueio com mensagens de erro, seleção de conta obrigatória quando o modo está
+ligado, erro do servidor e edição pré-preenchida) e o painel de contas (listagem
+com soma, inclusão, edição ao sair do campo e remoção).
 
 ---
 

@@ -88,9 +88,12 @@ function IdentityCard() {
 }
 
 function InitialBalanceCard() {
-  const { settings, refresh, period, version } = useFinance();
+  const { settings, refresh, period, anchor, version } = useFinance();
   const { notify } = useToast();
-  const summary = useApiResource(() => api.getSummary(period), [period, version]);
+  const summary = useApiResource(
+    () => api.getSummary(period, anchor),
+    [period, anchor, version],
+  );
 
   const [cents, setCents] = useState(0);
   const [negative, setNegative] = useState(false);

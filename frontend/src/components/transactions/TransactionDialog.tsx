@@ -23,9 +23,12 @@ interface FormState {
   description: string;
   category: string;
   date: string;
+  accountId: string;
 }
 
-type FormErrors = Partial<Record<'amountCents' | 'description' | 'category' | 'date', string>>;
+type FormErrors = Partial<
+  Record<'amountCents' | 'description' | 'category' | 'date' | 'accountId', string>
+>;
 
 function initialState(transaction: Transaction | null, type: TransactionType): FormState {
   if (transaction) {
@@ -35,12 +38,13 @@ function initialState(transaction: Transaction | null, type: TransactionType): F
       description: transaction.description,
       category: transaction.category,
       date: transaction.date,
+      accountId: transaction.accountId ?? '',
     };
   }
-  return { type, amountCents: 0, description: '', category: '', date: todayIso() };
+  return { type, amountCents: 0, description: '', category: '', date: todayIso(), accountId: '' };
 }
 
-function validate(state: FormState): FormErrors {
+function validate(state: FormState, requiresAccount: boolean): FormErrors {
   const errors: FormErrors = {};
 
   if (state.amountCents <= 0) errors.amountCents = 'Informe um valor maior que zero.';
@@ -50,6 +54,7 @@ function validate(state: FormState): FormErrors {
   if (!state.category) errors.category = 'Escolha uma categoria.';
   if (!/^\d{4}-\d{2}-\d{2}$/.test(state.date) || Number.isNaN(Date.parse(state.date)))
     errors.date = 'Informe uma data válida.';
+  if (requiresAccount && !state.accountId) errors.accountId = 'Escolha a conta desta transação.';
 
   return errors;
 }
@@ -68,8 +73,14 @@ export function TransactionDialog({
   transaction,
   defaultType,
 }: TransactionDialogProps) {
-  const { categories, refresh } = useFinance();
+  const { categories, refresh, settings, accounts } = useFinance();
   const { notify } = useToast();
+
+  // Com múltiplas contas ligadas, todo lançamento precisa dizer de onde saiu.
+  const useAccounts = settings?.useMultipleAccounts ?? false;
+  const accountOptions = accounts ?? [];
+  const hasAccounts = accountOptions.length > 0;
+  const requiresAccount = useAccounts && hasAccounts;
 
   const [state, setState] = useState<FormState>(() => initialState(transaction, defaultType));
   const [errors, setErrors] = useState<FormErrors>({});
@@ -99,7 +110,7 @@ export function TransactionDialog({
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    const validation = validate(state);
+    const validation = validate(state, requiresAccount);
     setErrors(validation);
     if (Object.keys(validation).length > 0) return;
 
@@ -109,6 +120,7 @@ export function TransactionDialog({
       description: state.description.trim(),
       category: state.category,
       date: state.date,
+      accountId: useAccounts ? state.accountId || null : null,
     };
 
     setSubmitting(true);
@@ -231,6 +243,36 @@ export function TransactionDialog({
             )}
           </Field>
         </div>
+
+        {useAccounts &&
+          (hasAccounts ? (
+            <Field label="Conta" error={errors.accountId}>
+              {({ id, describedBy, invalid }) => (
+                <Select
+                  id={id}
+                  aria-describedby={describedBy}
+                  invalid={invalid}
+                  value={state.accountId}
+                  onChange={(event) => update('accountId', event.target.value)}
+                >
+                  <option value="" disabled>
+                    Selecione…
+                  </option>
+                  {accountOptions.map((account) => (
+                    <option key={account.id} value={account.id}>
+                      {account.name}
+                    </option>
+                  ))}
+                </Select>
+              )}
+            </Field>
+          ) : (
+            <p className="rounded-xl bg-surface-inset px-4 py-3 text-[13px] text-ink-2">
+              Você ativou múltiplas contas mas ainda não cadastrou nenhuma. Adicione suas contas
+              em <strong className="font-medium text-ink">Usuário</strong> para vincular as
+              transações.
+            </p>
+          ))}
 
         {formError && (
           <p role="alert" className="rounded-xl bg-expense-soft px-4 py-3 text-[13px] text-expense-text">

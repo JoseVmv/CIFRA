@@ -110,6 +110,12 @@ function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps)
         <p className="truncate text-sm font-medium text-ink">{transaction.description}</p>
         <p className="mt-0.5 truncate text-[12px] text-ink-3">
           {transaction.category}
+          {transaction.accountName && (
+            <>
+              <span aria-hidden> · </span>
+              {transaction.accountName}
+            </>
+          )}
           <span className="sr-only"> — {income ? 'entrada' : 'saída'}</span>
         </p>
       </div>

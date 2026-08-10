@@ -19,14 +19,24 @@ interface Filters {
   search: string;
   type: TransactionType | '';
   category: string;
+  accountId: string;
   period: PeriodKey;
 }
 
-const INITIAL_FILTERS: Filters = { search: '', type: '', category: '', period: 'all' };
+const INITIAL_FILTERS: Filters = {
+  search: '',
+  type: '',
+  category: '',
+  accountId: '',
+  period: 'all',
+};
 
 export function TransactionsPage() {
-  const { version, categories } = useFinance();
+  const { version, anchor, categories, settings, accounts } = useFinance();
   const { openNew } = useTransactionDialog();
+
+  // O filtro por conta só aparece quando o usuário usa múltiplas contas.
+  const showAccountFilter = (settings?.useMultipleAccounts ?? false) && (accounts?.length ?? 0) > 0;
 
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [searchInput, setSearchInput] = useState('');
@@ -51,11 +61,13 @@ export function TransactionsPage() {
         search: filters.search || undefined,
         type: filters.type || undefined,
         category: filters.category || undefined,
+        accountId: filters.accountId || undefined,
         period: filters.period === 'all' ? undefined : filters.period,
+        reference: filters.period === 'all' ? undefined : anchor,
         limit,
         offset: 0,
       }),
-    [filters, limit, version],
+    [filters, limit, anchor, version],
   );
 
   const categoryOptions = useMemo(() => {
@@ -66,7 +78,11 @@ export function TransactionsPage() {
   }, [categories, filters.type]);
 
   const hasFilters =
-    filters.search !== '' || filters.type !== '' || filters.category !== '' || filters.period !== 'all';
+    filters.search !== '' ||
+    filters.type !== '' ||
+    filters.category !== '' ||
+    filters.accountId !== '' ||
+    filters.period !== 'all';
 
   function update<K extends keyof Filters>(key: K, value: Filters[K]): void {
     setFilters((current) => ({ ...current, [key]: value }));
@@ -143,6 +159,21 @@ export function TransactionsPage() {
                 </option>
               ))}
             </Select>
+
+            {showAccountFilter && (
+              <Select
+                aria-label="Filtrar por conta"
+                value={filters.accountId}
+                onChange={(event) => update('accountId', event.target.value)}
+              >
+                <option value="">Todas as contas</option>
+                {(accounts ?? []).map((account) => (
+                  <option key={account.id} value={account.id}>
+                    {account.name}
+                  </option>
+                ))}
+              </Select>
+            )}
           </div>
 
           {hasFilters && (

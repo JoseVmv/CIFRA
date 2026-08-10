@@ -20,7 +20,10 @@ export function createTransactionsRouter(services: Services): Router {
     let from: string | null = query.from ?? null;
     let to: string | null = query.to ?? null;
     if (!query.from && !query.to && query.period && isPeriodKey(query.period)) {
-      const range = resolveRange({ period: query.period as PeriodKey });
+      const range = resolveRange({
+        period: query.period as PeriodKey,
+        reference: query.reference,
+      });
       from = range.from;
       to = range.to;
     }
@@ -29,6 +32,7 @@ export function createTransactionsRouter(services: Services): Router {
       search: query.search,
       category: query.category,
       type: query.type,
+      accountId: query.accountId,
       from,
       to,
       limit: query.limit ?? 100,

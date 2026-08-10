@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { daysBetween, eachDay, eachMonth, today } from '../domain/dates';
 import type {
   CategorySlice,
+  Comparison,
   DateRange,
   Granularity,
   SeriesPoint,
@@ -167,7 +168,29 @@ export function createAnalyticsService(
     return { start: start > end ? end : start, end };
   }
 
-  function getStatistics(range: DateRange): Statistics {
+  /** Variação percentual; `null` quando não há base de comparação. */
+  function changePercent(current: number, previous: number): number | null {
+    if (previous === 0) return null;
+    return Math.round(((current - previous) / previous) * 1000) / 10;
+  }
+
+  function buildComparison(current: Totals, previousRange: DateRange | null): Comparison | null {
+    if (!previousRange) return null;
+
+    const previous = rangeTotals(previousRange);
+    return {
+      range: previousRange,
+      totals: {
+        incomeCents: previous.incomeCents,
+        expenseCents: previous.expenseCents,
+        netCents: previous.incomeCents - previous.expenseCents,
+      },
+      incomeChangePercent: changePercent(current.incomeCents, previous.incomeCents),
+      expenseChangePercent: changePercent(current.expenseCents, previous.expenseCents),
+    };
+  }
+
+  function getStatistics(range: DateRange, previousRange: DateRange | null = null): Statistics {
     const totals = rangeTotals(range);
     const opening = openingBalance(range);
     const { start, end } = seriesBounds(range);
@@ -181,6 +204,7 @@ export function createAnalyticsService(
         expenseCents: totals.expenseCents,
         netCents: totals.incomeCents - totals.expenseCents,
       },
+      comparison: buildComparison(totals, previousRange),
       openingBalanceCents: opening,
       series: buildSeries(start, end, granularity, opening),
       expensesByCategory: byCategory('expense', range),

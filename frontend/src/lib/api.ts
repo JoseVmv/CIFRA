@@ -1,6 +1,9 @@
 import type {
   Account,
   AccountInput,
+  Budget,
+  BudgetInput,
+  BudgetUsage,
   CategoriesResponse,
   Paginated,
   PeriodKey,
@@ -97,10 +100,22 @@ export const api = {
   deleteTransaction: (id: string) =>
     request<void>(`/transactions/${id}`, { method: 'DELETE' }),
 
-  getSummary: (period: PeriodKey) => request<Summary>(`/summary${buildQuery({ period })}`),
+  getSummary: (period: PeriodKey, reference?: string) =>
+    request<Summary>(`/summary${buildQuery({ period, reference })}`),
 
-  getStatistics: (period: PeriodKey) =>
-    request<Statistics>(`/statistics${buildQuery({ period })}`),
+  getStatistics: (period: PeriodKey, reference?: string) =>
+    request<Statistics>(`/statistics${buildQuery({ period, reference })}`),
+
+  listBudgets: (reference?: string) =>
+    request<{ items: BudgetUsage[] }>(`/budgets${buildQuery({ reference })}`),
+
+  createBudget: (input: BudgetInput) =>
+    request<Budget>('/budgets', { method: 'POST', body: JSON.stringify(input) }),
+
+  updateBudget: (id: string, input: BudgetInput) =>
+    request<Budget>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+
+  deleteBudget: (id: string) => request<void>(`/budgets/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request<Settings>('/settings'),
 

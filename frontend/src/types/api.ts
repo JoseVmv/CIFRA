@@ -9,6 +9,8 @@ export interface Transaction {
   description: string;
   category: string;
   date: string;
+  accountId: string | null;
+  accountName: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -19,6 +21,7 @@ export interface TransactionInput {
   description: string;
   category: string;
   date: string;
+  accountId?: string | null;
 }
 
 export interface Paginated<T> {
@@ -96,13 +99,56 @@ export interface CategorySlice {
   count: number;
 }
 
+export interface PeriodTotals {
+  incomeCents: number;
+  expenseCents: number;
+  netCents: number;
+}
+
+export interface Comparison {
+  range: DateRange;
+  totals: PeriodTotals;
+  incomeChangePercent: number | null;
+  expenseChangePercent: number | null;
+}
+
 export interface Statistics {
   range: DateRange & { granularity: Granularity };
-  totals: { incomeCents: number; expenseCents: number; netCents: number };
+  totals: PeriodTotals;
+  /** `null` no período "Tudo", que não tem anterior. */
+  comparison: Comparison | null;
   openingBalanceCents: number;
   series: SeriesPoint[];
   expensesByCategory: CategorySlice[];
   incomeByCategory: CategorySlice[];
+}
+
+export type BudgetStatus = 'ok' | 'warning' | 'exceeded';
+
+/** A partir deste consumo o app avisa no painel. */
+export const BUDGET_WARNING_PERCENT = 90;
+
+export interface Budget {
+  id: string;
+  category: string;
+  limitCents: number;
+  months: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetInput {
+  category: string;
+  limitCents: number;
+  months: number;
+}
+
+export interface BudgetUsage extends Budget {
+  window: { from: string; to: string };
+  spentCents: number;
+  remainingCents: number;
+  percent: number;
+  status: BudgetStatus;
 }
 
 export interface CategoriesResponse {
@@ -114,7 +160,10 @@ export interface TransactionQuery {
   search?: string;
   category?: string;
   type?: TransactionType;
+  accountId?: string;
   period?: PeriodKey;
+  /** Mês em torno do qual o período é montado. */
+  reference?: string;
   from?: string;
   to?: string;
   limit?: number;

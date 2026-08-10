@@ -10,6 +10,10 @@ export interface Transaction {
   category: string;
   /** Data da transação no calendário local, `YYYY-MM-DD`. */
   date: string;
+  /** Conta vinculada, quando o modo de múltiplas contas está em uso. */
+  accountId: string | null;
+  /** Nome da conta no momento da consulta — conveniência para a interface. */
+  accountName: string | null;
   /** Momento em que o registro foi criado (ISO 8601, UTC). */
   createdAt: string;
   updatedAt: string;
@@ -21,12 +25,14 @@ export interface TransactionInput {
   description: string;
   category: string;
   date: string;
+  accountId?: string | null;
 }
 
 export interface TransactionFilters {
   search?: string;
   category?: string;
   type?: TransactionType;
+  accountId?: string;
   from?: string | null;
   to?: string | null;
   limit?: number;
@@ -111,11 +117,58 @@ export interface CategorySlice {
   count: number;
 }
 
+export interface PeriodTotals {
+  incomeCents: number;
+  expenseCents: number;
+  netCents: number;
+}
+
+/** Mesma janela, deslocada um período para trás. `null` no período "Tudo". */
+export interface Comparison {
+  range: DateRange;
+  totals: PeriodTotals;
+  /** Variação percentual em relação ao período anterior; `null` se ele foi zero. */
+  incomeChangePercent: number | null;
+  expenseChangePercent: number | null;
+}
+
 export interface Statistics {
   range: DateRange & { granularity: Granularity };
-  totals: { incomeCents: number; expenseCents: number; netCents: number };
+  totals: PeriodTotals;
+  comparison: Comparison | null;
   openingBalanceCents: number;
   series: SeriesPoint[];
   expensesByCategory: CategorySlice[];
   incomeByCategory: CategorySlice[];
+}
+
+export type BudgetStatus = 'ok' | 'warning' | 'exceeded';
+
+/** A partir deste consumo o app avisa o usuário. */
+export const BUDGET_WARNING_PERCENT = 90;
+
+export interface Budget {
+  id: string;
+  category: string;
+  limitCents: number;
+  /** Tamanho da janela do limite, em meses (1 = mensal). */
+  months: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface BudgetInput {
+  category: string;
+  limitCents: number;
+  months: number;
+}
+
+export interface BudgetUsage extends Budget {
+  /** Janela avaliada, terminando no mês de referência. */
+  window: { from: string; to: string };
+  spentCents: number;
+  remainingCents: number;
+  /** Consumo em %, com 1 casa decimal. Pode passar de 100. */
+  percent: number;
+  status: BudgetStatus;
 }

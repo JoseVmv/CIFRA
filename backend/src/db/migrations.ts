@@ -43,6 +43,27 @@ const MIGRATIONS: readonly string[] = [
 
   CREATE INDEX idx_accounts_position ON accounts (position, created_at);
   `,
+
+  // 3. Vínculo opcional entre transação e conta. Apagar a conta não apaga o
+  //    lançamento: ele apenas deixa de estar vinculado.
+  `
+  ALTER TABLE transactions
+    ADD COLUMN account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL;
+
+  CREATE INDEX idx_transactions_account ON transactions (account_id);
+  `,
+
+  // 4. Limites de gasto por categoria, cada um com sua janela em meses.
+  `
+  CREATE TABLE budgets (
+    id          TEXT PRIMARY KEY,
+    category    TEXT    NOT NULL UNIQUE CHECK (length(category) BETWEEN 1 AND 40),
+    limit_cents INTEGER NOT NULL CHECK (limit_cents > 0),
+    months      INTEGER NOT NULL CHECK (months BETWEEN 1 AND 24),
+    created_at  TEXT    NOT NULL,
+    updated_at  TEXT    NOT NULL
+  );
+  `,
 ];
 
 export function runMigrations(db: DatabaseSync): void {

@@ -5,6 +5,7 @@ import { SummaryCards } from '../components/dashboard/SummaryCards';
 import { CashflowChart, CashflowTable } from '../components/charts/CashflowChart';
 import { CategoryBreakdown } from '../components/charts/CategoryBreakdown';
 import { ChartCard } from '../components/charts/ChartCard';
+import { BudgetAlert } from '../components/budgets/BudgetAlert';
 import { TransactionList } from '../components/transactions/TransactionList';
 import { Card, CardHeader } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -19,7 +20,7 @@ import { formatCurrency } from '../lib/format';
 const RECENT_LIMIT = 6;
 
 export function DashboardPage() {
-  const { period, version, settings } = useFinance();
+  const { period, anchor, version, settings } = useFinance();
   const { openNew } = useTransactionDialog();
   const periodLabel = usePeriodLabel();
 
@@ -27,8 +28,14 @@ export function DashboardPage() {
     ? `Olá, ${settings.displayName}. Seu dinheiro hoje e como ele se moveu no período.`
     : 'Seu dinheiro hoje e como ele se moveu no período.';
 
-  const summary = useApiResource(() => api.getSummary(period), [period, version]);
-  const statistics = useApiResource(() => api.getStatistics(period), [period, version]);
+  const summary = useApiResource(
+    () => api.getSummary(period, anchor),
+    [period, anchor, version],
+  );
+  const statistics = useApiResource(
+    () => api.getStatistics(period, anchor),
+    [period, anchor, version],
+  );
   const recent = useApiResource(
     () => api.listTransactions({ limit: RECENT_LIMIT }),
     [version],
@@ -49,6 +56,8 @@ export function DashboardPage() {
       <PageHeader title="Visão geral" description={greeting} actions={<PeriodSelector />} />
 
       <div className="flex flex-col gap-4 sm:gap-6">
+        <BudgetAlert />
+
         <SummaryCards
           summary={summary.data}
           periodLabel={periodLabel}

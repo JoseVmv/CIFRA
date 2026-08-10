@@ -5,13 +5,16 @@ import { BalanceChart, BalanceTable } from '../components/charts/BalanceChart';
 import { CashflowChart, CashflowTable } from '../components/charts/CashflowChart';
 import { CategoryBreakdown } from '../components/charts/CategoryBreakdown';
 import { ChartCard } from '../components/charts/ChartCard';
+import { BudgetsCard } from '../components/budgets/BudgetsCard';
 import { Card, CardHeader } from '../components/ui/Card';
 import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States';
+import { IconArrowDown, IconArrowUp } from '../components/ui/Icons';
 import { useFinance } from '../context/FinanceContext';
 import { useApiResource } from '../hooks/useApiResource';
 import { api } from '../lib/api';
 import { formatCurrency } from '../lib/format';
+import { periodWindowLabel } from '../lib/months';
 import { cn } from '../lib/cn';
 import type { TransactionType } from '../types/api';
 
@@ -21,11 +24,14 @@ const BREAKDOWN_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }
 ];
 
 export function AnalyticsPage() {
-  const { period, version } = useFinance();
+  const { period, anchor, version } = useFinance();
   const periodLabel = usePeriodLabel();
   const [breakdownType, setBreakdownType] = useState<TransactionType>('expense');
 
-  const statistics = useApiResource(() => api.getStatistics(period), [period, version]);
+  const statistics = useApiResource(
+    () => api.getStatistics(period, anchor),
+    [period, anchor, version],
+  );
 
   if (statistics.error && !statistics.data) {
     return (
@@ -37,6 +43,7 @@ export function AnalyticsPage() {
 
   const data = statistics.data;
   const series = data?.series ?? [];
+  const comparison = data?.comparison ?? null;
   const slices =
     breakdownType === 'expense' ? (data?.expensesByCategory ?? []) : (data?.incomeByCategory ?? []);
   const granularityNote =
@@ -52,22 +59,38 @@ export function AnalyticsPage() {
 
       <div className="flex flex-col gap-4 sm:gap-6">
         <Card className="p-5 sm:p-6">
-          <p className="text-[13px] font-medium text-ink-3">Resumo · {periodLabel}</p>
+          <div className="flex flex-wrap items-baseline justify-between gap-2">
+            <p className="text-[13px] font-medium text-ink-3">Resumo · {periodLabel}</p>
+            {comparison && (
+              <p className="text-xs text-ink-3">
+                comparado com {periodWindowLabel(period, comparison.range.to ?? anchor)}
+              </p>
+            )}
+          </div>
+
           <dl className="mt-4 grid gap-5 sm:grid-cols-3">
             <SummaryLine
               label="Entradas"
               value={data ? formatCurrency(data.totals.incomeCents) : null}
               tone="income"
+              change={comparison?.incomeChangePercent ?? null}
+              previous={comparison ? formatCurrency(comparison.totals.incomeCents) : null}
+              higherIsBetter
             />
             <SummaryLine
               label="Saídas"
               value={data ? formatCurrency(data.totals.expenseCents) : null}
               tone="expense"
+              change={comparison?.expenseChangePercent ?? null}
+              previous={comparison ? formatCurrency(comparison.totals.expenseCents) : null}
             />
             <SummaryLine
               label="Resultado"
               value={data ? formatCurrency(data.totals.netCents) : null}
               tone={data && data.totals.netCents < 0 ? 'expense' : 'income'}
+              previous={comparison ? formatCurrency(comparison.totals.netCents) : null}
+              change={null}
+              higherIsBetter
             />
           </dl>
         </Card>
@@ -88,6 +111,8 @@ export function AnalyticsPage() {
             <CashflowChart series={series} height={300} />
           )}
         </ChartCard>
+
+        <BudgetsCard />
 
         <ChartCard
           title="Evolução do saldo"
@@ -129,7 +154,11 @@ export function AnalyticsPage() {
               <CategoryBreakdown slices={slices} type={breakdownType} maxRows={9} />
             ) : (
               <EmptyState
-                title={breakdownType === 'expense' ? 'Nenhuma saída no período' : 'Nenhuma entrada no período'}
+                title={
+                  breakdownType === 'expense'
+                    ? 'Nenhuma saída no período'
+                    : 'Nenhuma entrada no período'
+                }
                 description="Escolha outro período ou registre transações para ver a distribuição."
               />
             )}
@@ -140,15 +169,25 @@ export function AnalyticsPage() {
   );
 }
 
+interface SummaryLineProps {
+  label: string;
+  value: string | null;
+  tone: 'income' | 'expense';
+  /** Variação percentual contra o período anterior; `null` esconde o indicador. */
+  change: number | null;
+  previous: string | null;
+  /** Para entradas, subir é bom. Para saídas, subir é ruim. */
+  higherIsBetter?: boolean;
+}
+
 function SummaryLine({
   label,
   value,
   tone,
-}: {
-  label: string;
-  value: string | null;
-  tone: 'income' | 'expense';
-}) {
+  change,
+  previous,
+  higherIsBetter = false,
+}: SummaryLineProps) {
   return (
     <div>
       <dt className="text-[13px] text-ink-3">{label}</dt>
@@ -164,6 +203,34 @@ function SummaryLine({
           {value}
         </dd>
       )}
+      {previous !== null && (
+        <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-3">
+          {change !== null && <ChangeBadge change={change} higherIsBetter={higherIsBetter} />}
+          <span>antes {previous}</span>
+        </p>
+      )}
     </div>
+  );
+}
+
+function ChangeBadge({ change, higherIsBetter }: { change: number; higherIsBetter: boolean }) {
+  if (change === 0) {
+    return <span className="text-ink-3">sem variação</span>;
+  }
+
+  const rising = change > 0;
+  const good = rising === higherIsBetter;
+
+  return (
+    <span
+      className={cn(
+        'inline-flex items-center gap-0.5 font-medium',
+        good ? 'text-income-text' : 'text-expense-text',
+      )}
+    >
+      {rising ? <IconArrowUp className="size-3" /> : <IconArrowDown className="size-3" />}
+      {rising ? '+' : '−'}
+      {Math.abs(change).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+    </span>
   );
 }
