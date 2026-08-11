@@ -20,6 +20,10 @@ import type {
 
 const BASE_URL = '/api';
 
+/** Maior página que a API aceita, e um teto de segurança contra laço infinito. */
+const EXPORT_PAGE_SIZE = 500;
+const MAX_EXPORT_PAGES = 40;
+
 /** Palavra que o usuário digita — e que a API exige — para apagar tudo. */
 export const RESET_CONFIRMATION = 'RESETAR';
 
@@ -92,6 +96,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 export const api = {
   listTransactions: (query?: TransactionQuery) =>
     request<Paginated<Transaction>>(`/transactions${buildQuery(query)}`),
+
+  /**
+   * Todas as transações do filtro, virando as páginas da API até o fim.
+   * Usada só na exportação — as telas paginam de propósito.
+   */
+  async listAllTransactions(query?: TransactionQuery): Promise<Transaction[]> {
+    const items: Transaction[] = [];
+
+    for (let page = 0; page < MAX_EXPORT_PAGES; page += 1) {
+      const response = await request<Paginated<Transaction>>(
+        `/transactions${buildQuery({ ...query, limit: EXPORT_PAGE_SIZE, offset: page * EXPORT_PAGE_SIZE })}`,
+      );
+      items.push(...response.items);
+      if (response.items.length === 0 || items.length >= response.total) break;
+    }
+
+    return items;
+  },
 
   createTransaction: (input: TransactionInput) =>
     request<Transaction>('/transactions', { method: 'POST', body: JSON.stringify(input) }),

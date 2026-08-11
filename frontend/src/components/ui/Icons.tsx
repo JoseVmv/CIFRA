@@ -158,6 +158,12 @@ export const IconUser = (props: IconProps) => (
   </Icon>
 );
 
+export const IconDownload = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M12 3v12M7 11l5 5 5-5M4 20h16" />
+  </Icon>
+);
+
 export const IconRepeat = (props: IconProps) => (
   <Icon {...props}>
     <path d="M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" />

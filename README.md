@@ -25,6 +25,9 @@ múltiplas contas, da soma das contas cadastradas.
   categoria e data), com confirmação visual e sem recarregar a página.
 - **Histórico** agrupado por dia, com busca por descrição (ignora acentos e
   maiúsculas), filtros de tipo, categoria e período, além de edição e exclusão.
+- **Exportar** o que está na tela em CSV (para Excel ou padrão), JSON ou um
+  extrato para imprimir/salvar em PDF, com filtros próprios de período, tipo,
+  categoria, conta e busca.
 - **Lançamentos recorrentes**: cadastre o salário, o aluguel ou uma assinatura
   uma vez e o app registra sozinho quando a data chega. Semanal, mensal ou
   anual, com data de início, fim opcional e pausa. O que ainda não aconteceu
@@ -277,6 +280,29 @@ dezembro.
 
 ---
 
+## Exportar transações
+
+O botão **Exportar**, na aba Transações, abre um diálogo que já vem preenchido
+com os filtros da tela. Dá para ajustar período (as mesmas janelas do app, ou
+datas específicas), tipo, categoria, conta, busca e ordem, e a prévia diz quantas
+transações o recorte alcança antes de gerar qualquer coisa.
+
+| Formato | Quando usar |
+|---------|-------------|
+| **CSV para Excel (`;`)** | Abre com um duplo clique no Excel em português: separador ponto e vírgula, vírgula decimal, data `DD/MM/AAAA` e marca de bytes (BOM) para os acentos saírem certos |
+| **CSV padrão (`,`)** | Planilhas Google, Numbers, pandas — separador vírgula, ponto decimal e data `AAAA-MM-DD` |
+| **JSON** | Backup ou uso em outro programa: filtros, resumo e todos os campos, com valores em centavos inteiros |
+| **PDF / imprimir** | Abre a janela de impressão com o extrato formatado (cabeçalho, resumo e tabela). Escolha "Salvar como PDF" por lá |
+
+Nos dois CSV a coluna **Valor** já vem com sinal — saídas negativas — então um
+`=SOMA()` na planilha devolve o resultado do período direto. Há ainda uma opção
+de acrescentar uma linha de totais no fim do arquivo.
+
+Tudo é gerado no navegador, a partir da mesma API que a tela usa: nada é enviado
+para lugar nenhum e o servidor não guarda arquivo algum.
+
+---
+
 ## Dados de demonstração
 
 ```bash
@@ -450,12 +476,14 @@ npm test
 - API completa por HTTP: códigos de status, mensagens amigáveis, JSON inválido,
   rota inexistente e ausência de stack trace nas respostas.
 
-**Frontend (38 testes)** — formatação monetária, aritmética de meses e rótulos de
+**Frontend (48 testes)** — formatação monetária, aritmética de meses e rótulos de
 janela, o fluxo do diálogo de transação (digitação convertida em centavos,
 bloqueio com mensagens de erro, seleção de conta obrigatória quando o modo está
 ligado, erro do servidor e edição pré-preenchida), o diálogo de recorrência
 (calendário que muda com a frequência, data final anterior ao início e envio em
-centavos) e o painel de contas (listagem com soma, inclusão, edição ao sair do
+centavos), a geração dos arquivos de exportação (dialetos de CSV, escape de
+separador e aspas, sinal do valor, linha de totais, JSON com resumo e nome do
+arquivo) e o painel de contas (listagem com soma, inclusão, edição ao sair do
 campo e remoção).
 
 ---

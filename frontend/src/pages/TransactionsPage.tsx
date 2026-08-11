@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../components/layout/AppShell';
 import { RecurrencesCard } from '../components/recurrences/RecurrencesCard';
+import { ExportDialog } from '../components/transactions/ExportDialog';
 import { TransactionList } from '../components/transactions/TransactionList';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Field';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States';
-import { IconEmpty, IconPlus, IconSearch } from '../components/ui/Icons';
+import { IconDownload, IconEmpty, IconPlus, IconSearch } from '../components/ui/Icons';
 import { PERIOD_OPTIONS, useFinance } from '../context/FinanceContext';
 import { useTransactionDialog } from '../context/TransactionDialogContext';
 import { useApiResource } from '../hooks/useApiResource';
@@ -42,6 +43,19 @@ export function TransactionsPage() {
   const [filters, setFilters] = useState<Filters>(INITIAL_FILTERS);
   const [searchInput, setSearchInput] = useState('');
   const [limit, setLimit] = useState(PAGE_SIZE);
+  const [exportOpen, setExportOpen] = useState(false);
+
+  // O diálogo de exportação abre em cima do que a tela já está mostrando.
+  const exportDefaults = useMemo(
+    () => ({
+      type: filters.type,
+      category: filters.category,
+      accountId: filters.accountId,
+      period: filters.period,
+      search: filters.search,
+    }),
+    [filters],
+  );
 
   // A busca só vai para a API depois que o usuário para de digitar.
   useEffect(() => {
@@ -104,9 +118,18 @@ export function TransactionsPage() {
         title="Transações"
         description="Todo o histórico, com busca e filtros."
         actions={
-          <Button variant="primary" icon={<IconPlus />} onClick={() => openNew()}>
-            Nova transação
-          </Button>
+          <>
+            <Button
+              variant="secondary"
+              icon={<IconDownload />}
+              onClick={() => setExportOpen(true)}
+            >
+              Exportar
+            </Button>
+            <Button variant="primary" icon={<IconPlus />} onClick={() => openNew()}>
+              Nova transação
+            </Button>
+          </>
         }
       />
 
@@ -254,6 +277,12 @@ export function TransactionsPage() {
           )}
         </Card>
       </div>
+
+      <ExportDialog
+        open={exportOpen}
+        onClose={() => setExportOpen(false)}
+        defaults={exportDefaults}
+      />
     </>
   );
 }
