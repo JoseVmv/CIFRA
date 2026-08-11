@@ -35,3 +35,23 @@ export const yAxisProps = {
 /** Marcas finas: barras estreitas e cantos de 4px na ponta dos dados. */
 export const BAR_RADIUS: [number, number, number, number] = [4, 4, 0, 0];
 export const MAX_BAR_SIZE = 12;
+
+/**
+ * Barra do que ainda não aconteceu: preenchimento cinza bem apagado e contorno
+ * pontilhado um pouco mais presente. A diferença entre as duas opacidades é o
+ * que faz a marca ler como "vazio com contorno", e não como dado consolidado.
+ */
+export const PENDING_BAR = {
+  fill: 'var(--ink-3)',
+  fillOpacity: 0.12,
+  stroke: 'var(--ink-3)',
+  strokeOpacity: 0.4,
+  strokeWidth: 1,
+  strokeDasharray: '3 2',
+} as const;
+
+/** As mesmas cores da barra prevista, para a legenda e outros elementos HTML. */
+export const PENDING_SWATCH = {
+  background: 'color-mix(in oklab, var(--ink-3) 12%, transparent)',
+  border: 'color-mix(in oklab, var(--ink-3) 40%, transparent)',
+} as const;

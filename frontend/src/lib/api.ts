@@ -7,6 +7,8 @@ import type {
   CategoriesResponse,
   Paginated,
   PeriodKey,
+  Recurrence,
+  RecurrenceInput,
   Settings,
   SettingsInput,
   Statistics,
@@ -116,6 +118,17 @@ export const api = {
     request<Budget>(`/budgets/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
 
   deleteBudget: (id: string) => request<void>(`/budgets/${id}`, { method: 'DELETE' }),
+
+  listRecurrences: () => request<{ items: Recurrence[] }>('/recurrences'),
+
+  createRecurrence: (input: RecurrenceInput) =>
+    request<Recurrence>('/recurrences', { method: 'POST', body: JSON.stringify(input) }),
+
+  updateRecurrence: (id: string, input: RecurrenceInput) =>
+    request<Recurrence>(`/recurrences/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
+
+  /** Remove só a regra: os lançamentos que ela já criou continuam no histórico. */
+  deleteRecurrence: (id: string) => request<void>(`/recurrences/${id}`, { method: 'DELETE' }),
 
   getSettings: () => request<Settings>('/settings'),
 

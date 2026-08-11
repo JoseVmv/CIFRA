@@ -123,6 +123,7 @@ describe('diálogo de transação', () => {
       date: '2026-08-09',
       accountId: null,
       accountName: null,
+      recurrenceId: null,
       createdAt: '2026-08-09T12:00:00.000Z',
       updatedAt: '2026-08-09T12:00:00.000Z',
     });
@@ -194,6 +195,7 @@ describe('diálogo de transação', () => {
       date: '2026-08-09',
       accountId: 'conta-0',
       accountName: 'Nubank',
+      recurrenceId: null,
       createdAt: '2026-08-09T12:00:00.000Z',
       updatedAt: '2026-08-09T12:00:00.000Z',
     });
@@ -247,6 +249,7 @@ describe('diálogo de transação', () => {
           date: '2026-08-05',
           accountId: null,
           accountName: null,
+          recurrenceId: null,
           createdAt: '2026-08-05T12:00:00.000Z',
           updatedAt: '2026-08-05T12:00:00.000Z',
         }}

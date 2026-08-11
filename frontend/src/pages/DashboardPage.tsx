@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { PageHeader } from '../components/layout/AppShell';
 import { PeriodSelector, usePeriodLabel } from '../components/layout/PeriodSelector';
 import { SummaryCards } from '../components/dashboard/SummaryCards';
-import { CashflowChart, CashflowTable } from '../components/charts/CashflowChart';
+import { CashflowChart, CashflowTable, cashflowLegend } from '../components/charts/CashflowChart';
 import { CategoryBreakdown } from '../components/charts/CategoryBreakdown';
 import { ChartCard } from '../components/charts/ChartCard';
 import { BudgetAlert } from '../components/budgets/BudgetAlert';
@@ -90,10 +90,7 @@ export function DashboardPage() {
                 title="Entradas e saídas"
                 description={periodLabel}
                 dimmed={statistics.isRefreshing}
-                legend={[
-                  { label: 'Entradas', color: 'var(--income)' },
-                  { label: 'Saídas', color: 'var(--expense)' },
-                ]}
+                legend={cashflowLegend(statistics.data?.series ?? [])}
                 table={<CashflowTable series={statistics.data?.series ?? []} />}
               >
                 {statistics.isInitialLoading ? (

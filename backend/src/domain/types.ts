@@ -14,6 +14,8 @@ export interface Transaction {
   accountId: string | null;
   /** Nome da conta no momento da consulta — conveniência para a interface. */
   accountName: string | null;
+  /** Recorrência que gerou o lançamento; `null` quando foi digitado à mão. */
+  recurrenceId: string | null;
   /** Momento em que o registro foi criado (ISO 8601, UTC). */
   createdAt: string;
   updatedAt: string;
@@ -26,6 +28,8 @@ export interface TransactionInput {
   category: string;
   date: string;
   accountId?: string | null;
+  /** Uso interno: só a materialização de recorrências preenche este campo. */
+  recurrenceId?: string | null;
 }
 
 export interface TransactionFilters {
@@ -107,6 +111,13 @@ export interface SeriesPoint {
   expenseCents: number;
   /** Saldo acumulado ao final do bucket. */
   balanceCents: number;
+  /**
+   * O que as recorrências ainda vão lançar neste bucket. É apenas ilustrativo:
+   * não entra em saldo, totais, categorias nem em nenhum outro número do app —
+   * existe só para o gráfico de barras desenhar o que está por vir.
+   */
+  pendingIncomeCents: number;
+  pendingExpenseCents: number;
 }
 
 export interface CategorySlice {
@@ -171,4 +182,60 @@ export interface BudgetUsage extends Budget {
   /** Consumo em %, com 1 casa decimal. Pode passar de 100. */
   percent: number;
   status: BudgetStatus;
+}
+
+export type RecurrenceFrequency = 'weekly' | 'monthly' | 'yearly';
+
+/**
+ * Molde de uma transação que se repete. Quando a data chega, o app materializa
+ * a regra: cria uma transação normal, que dali em diante vive por conta própria
+ * (pode ser editada ou apagada sem afetar a regra).
+ */
+export interface Recurrence {
+  id: string;
+  type: TransactionType;
+  amountCents: number;
+  description: string;
+  category: string;
+  accountId: string | null;
+  frequency: RecurrenceFrequency;
+  /** Dia do mês (1–31) das regras mensais e anuais. Meses curtos usam o último dia. */
+  dayOfMonth: number;
+  /** 0 = domingo … 6 = sábado. Só vale para regras semanais. */
+  weekday: number;
+  /** Mês (1–12) das regras anuais. */
+  month: number;
+  /** Primeira data em que a regra pode cair. */
+  startDate: string;
+  /** Última data em que a regra pode cair; `null` significa "sem fim". */
+  endDate: string | null;
+  /** Pausada, a regra não lança nada — nem retroage ao ser reativada. */
+  active: boolean;
+  /** Até que data a regra já foi considerada. `null` enquanto nunca rodou. */
+  lastRunDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecurrenceInput {
+  type: TransactionType;
+  amountCents: number;
+  description: string;
+  category: string;
+  accountId?: string | null;
+  frequency: RecurrenceFrequency;
+  /** Campos do calendário; os que o cliente omitir são deduzidos de `startDate`. */
+  dayOfMonth?: number;
+  weekday?: number;
+  month?: number;
+  startDate: string;
+  endDate?: string | null;
+  active?: boolean;
+}
+
+export interface RecurrenceView extends Recurrence {
+  /** Nome da conta vinculada, resolvido por junção. */
+  accountName: string | null;
+  /** Próxima data que ainda será lançada; `null` se a regra já acabou. */
+  nextDate: string | null;
 }

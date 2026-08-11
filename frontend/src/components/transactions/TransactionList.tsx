@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button, IconButton } from '../ui/Button';
-import { IconArrowDown, IconArrowUp, IconPencil, IconTrash } from '../ui/Icons';
+import { IconArrowDown, IconArrowUp, IconPencil, IconRepeat, IconTrash } from '../ui/Icons';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
 import { useTransactionDialog } from '../../context/TransactionDialogContext';
@@ -108,15 +108,24 @@ function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps)
 
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium text-ink">{transaction.description}</p>
-        <p className="mt-0.5 truncate text-[12px] text-ink-3">
-          {transaction.category}
-          {transaction.accountName && (
-            <>
-              <span aria-hidden> · </span>
-              {transaction.accountName}
-            </>
+        <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-ink-3">
+          {transaction.recurrenceId && (
+            <IconRepeat
+              className="size-3 shrink-0"
+              role="img"
+              aria-label="Criada por uma recorrência"
+            />
           )}
-          <span className="sr-only"> — {income ? 'entrada' : 'saída'}</span>
+          <span className="truncate">
+            {transaction.category}
+            {transaction.accountName && (
+              <>
+                <span aria-hidden> · </span>
+                {transaction.accountName}
+              </>
+            )}
+            <span className="sr-only"> — {income ? 'entrada' : 'saída'}</span>
+          </span>
         </p>
       </div>
 

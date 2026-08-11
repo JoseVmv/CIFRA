@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { PageHeader } from '../components/layout/AppShell';
 import { PeriodSelector, usePeriodLabel } from '../components/layout/PeriodSelector';
 import { BalanceChart, BalanceTable } from '../components/charts/BalanceChart';
-import { CashflowChart, CashflowTable } from '../components/charts/CashflowChart';
+import { CashflowChart, CashflowTable, cashflowLegend } from '../components/charts/CashflowChart';
 import { CategoryBreakdown } from '../components/charts/CategoryBreakdown';
 import { ChartCard } from '../components/charts/ChartCard';
 import { BudgetsCard } from '../components/budgets/BudgetsCard';
@@ -99,10 +99,7 @@ export function AnalyticsPage() {
           title="Entradas e saídas"
           description={`${periodLabel} · ${granularityNote}`}
           dimmed={statistics.isRefreshing}
-          legend={[
-            { label: 'Entradas', color: 'var(--income)' },
-            { label: 'Saídas', color: 'var(--expense)' },
-          ]}
+          legend={cashflowLegend(series)}
           table={<CashflowTable series={series} />}
         >
           {statistics.isInitialLoading ? (

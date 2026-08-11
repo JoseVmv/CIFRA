@@ -64,6 +64,16 @@ export function endOfMonth(iso: string): string {
   return format(new Date(Date.UTC(year, month, 0, 12)));
 }
 
+/** Quantos dias tem o mês desta data: 28, 29, 30 ou 31. */
+export function daysInMonth(iso: string): number {
+  return Number(endOfMonth(iso).slice(8));
+}
+
+/** Dia da semana: 0 = domingo … 6 = sábado. */
+export function weekdayOf(iso: string): number {
+  return toUtcDate(iso).getUTCDay();
+}
+
 export function startOfYear(iso: string): string {
   return `${iso.slice(0, 4)}-01-01`;
 }

@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { PageHeader } from '../components/layout/AppShell';
+import { RecurrencesCard } from '../components/recurrences/RecurrencesCard';
 import { TransactionList } from '../components/transactions/TransactionList';
 import { Card } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
@@ -110,6 +111,8 @@ export function TransactionsPage() {
       />
 
       <div className="flex flex-col gap-4 sm:gap-5">
+        <RecurrencesCard />
+
         <Card className="p-4 sm:p-5">
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             <div className="relative sm:col-span-2 lg:col-span-1">

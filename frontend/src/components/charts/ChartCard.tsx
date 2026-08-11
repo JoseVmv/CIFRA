@@ -3,11 +3,14 @@ import type { ReactNode } from 'react';
 import { Card, CardHeader } from '../ui/Card';
 import { IconButton } from '../ui/Button';
 import { IconChart, IconTable } from '../ui/Icons';
+import { PENDING_SWATCH } from './chartTheme';
 import { cn } from '../../lib/cn';
 
-interface LegendItem {
+export interface LegendItem {
   label: string;
   color: string;
+  /** `ghost` desenha o quadradinho vazado, igual à barra do que ainda vai acontecer. */
+  variant?: 'solid' | 'ghost';
 }
 
 interface ChartCardProps {
@@ -56,8 +59,12 @@ export function ChartCard({
             <li key={item.label} className="flex items-center gap-2 text-[13px] text-ink-2">
               <span
                 aria-hidden
-                className="size-2.5 rounded-[3px]"
-                style={{ backgroundColor: item.color }}
+                className={cn('size-2.5 rounded-[3px]', item.variant === 'ghost' && 'border border-dashed')}
+                style={
+                  item.variant === 'ghost'
+                    ? { backgroundColor: PENDING_SWATCH.background, borderColor: PENDING_SWATCH.border }
+                    : { backgroundColor: item.color }
+                }
               />
               {item.label}
             </li>

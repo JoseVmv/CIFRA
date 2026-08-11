@@ -11,6 +11,8 @@ export interface Transaction {
   date: string;
   accountId: string | null;
   accountName: string | null;
+  /** Recorrência que gerou o lançamento; `null` quando foi digitado à mão. */
+  recurrenceId: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -90,6 +92,12 @@ export interface SeriesPoint {
   incomeCents: number;
   expenseCents: number;
   balanceCents: number;
+  /**
+   * O que as recorrências ainda vão lançar. Só o gráfico de barras desenha esses
+   * valores, como marcação pontilhada — eles não entram em nenhum número do app.
+   */
+  pendingIncomeCents: number;
+  pendingExpenseCents: number;
 }
 
 export interface CategorySlice {
@@ -149,6 +157,49 @@ export interface BudgetUsage extends Budget {
   remainingCents: number;
   percent: number;
   status: BudgetStatus;
+}
+
+export type RecurrenceFrequency = 'weekly' | 'monthly' | 'yearly';
+
+/** Molde de uma transação que se repete sozinha quando a data chega. */
+export interface Recurrence {
+  id: string;
+  type: TransactionType;
+  amountCents: number;
+  description: string;
+  category: string;
+  accountId: string | null;
+  accountName: string | null;
+  frequency: RecurrenceFrequency;
+  /** Dia do mês das regras mensais e anuais. Meses curtos usam o último dia. */
+  dayOfMonth: number;
+  /** 0 = domingo … 6 = sábado. Só vale para regras semanais. */
+  weekday: number;
+  /** Mês (1–12) das regras anuais. */
+  month: number;
+  startDate: string;
+  endDate: string | null;
+  active: boolean;
+  lastRunDate: string | null;
+  /** Próximo lançamento previsto; `null` quando a regra já acabou. */
+  nextDate: string | null;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface RecurrenceInput {
+  type: TransactionType;
+  amountCents: number;
+  description: string;
+  category: string;
+  accountId?: string | null;
+  frequency: RecurrenceFrequency;
+  dayOfMonth?: number;
+  weekday?: number;
+  month?: number;
+  startDate: string;
+  endDate?: string | null;
+  active?: boolean;
 }
 
 export interface CategoriesResponse {

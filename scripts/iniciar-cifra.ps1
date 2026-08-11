@@ -148,6 +148,22 @@ function Test-BuildDesatualizado {
   return $fonteMaisNova -gt $buildMaisAntigo
 }
 
+<#
+  O servidor no ar é anterior ao build?
+
+  O frontend é lido do disco a cada pedido, então uma recompilação já aparece na
+  tela sem reiniciar nada — mas a API vive na memória do processo. Com um
+  servidor antigo no ar, a interface nova chama rotas que aquele processo não
+  conhece e a resposta é "Rota não encontrada". Comparar o build do backend com
+  a hora em que o processo subiu é o que fecha esse buraco.
+#>
+function Test-ServidorAntigo {
+  $subiuEm = Get-InicioDoServidor
+  if ($null -eq $subiuEm) { return $false }
+
+  return (Get-DataMaisRecente @((Join-Path $Raiz 'backend\dist'))) -gt $subiuEm
+}
+
 # ------------------------------------------------------------------- ações
 
 <#
@@ -250,26 +266,32 @@ function Open-Cifra {
 try {
   $noAr = Test-CifraNoAr
   $precisaCompilar = Test-BuildDesatualizado
+  # Mesmo com o build em dia, o processo no ar pode ser de antes dele.
+  $precisaReiniciar = $noAr -and -not $precisaCompilar -and (Test-ServidorAntigo)
 
   # Se a porta é de um `npm run dev`, deixamos ele em paz e só abrimos a aba —
   # derrubar o servidor de desenvolvimento de alguém no meio do trabalho seria
-  # a pior surpresa possível vinda de um atalho.
-  if ($noAr -and $precisaCompilar -and (Test-ServidorDeTerceiro)) {
+  # a pior surpresa possível vinda de um atalho. Ele também recarrega sozinho,
+  # então nunca fica velho.
+  if ($noAr -and ($precisaCompilar -or $precisaReiniciar) -and (Test-ServidorDeTerceiro)) {
     $precisaCompilar = $false
+    $precisaReiniciar = $false
   }
 
   # Caminho rápido: já está tudo pronto, é só abrir.
-  if ($noAr -and -not $precisaCompilar) {
+  if ($noAr -and -not $precisaCompilar -and -not $precisaReiniciar) {
     Open-Cifra
     exit 0
   }
 
+  # Recompilar exige derrubar o servidor; um servidor velho, também.
+  if ($noAr -and ($precisaCompilar -or $precisaReiniciar)) {
+    Show-Splash 'Atualizando para a versão mais recente...'
+    Stop-Cifra | Out-Null
+    $noAr = $false
+  }
+
   if ($precisaCompilar) {
-    if ($noAr) {
-      Show-Splash 'Atualizando para a versão mais recente...'
-      Stop-Cifra | Out-Null
-      $noAr = $false
-    }
     if (-not (Test-Path -LiteralPath (Join-Path $Raiz 'node_modules'))) {
       Show-Splash 'Instalando dependências (só desta vez)...'
       Invoke-Npm 'install' 'instalacao'

@@ -41,6 +41,21 @@ function Test-CifraNoAr {
 }
 
 <#
+  Momento (UTC) em que o servidor no ar subiu, deduzido do uptime que o próprio
+  /api/health informa. Devolve $null quando não dá para saber — e aí ninguém
+  mexe no processo: é melhor não reiniciar do que reiniciar por engano.
+#>
+function Get-InicioDoServidor {
+  try {
+    $saude = Invoke-RestMethod -Uri "$Url/api/health" -TimeoutSec 3
+    if ($null -eq $saude.uptimeSeconds) { return $null }
+    return (Get-Date).ToUniversalTime().AddSeconds(-[double]$saude.uptimeSeconds)
+  } catch {
+    return $null
+  }
+}
+
+<#
   Diz se quem está na porta NÃO é o servidor compilado que o atalho sobe —
   tipicamente o `npm run dev`, que roda `src/server.ts` pelo tsx. Nesse caso o
   atalho não encosta no processo: só abre o navegador.

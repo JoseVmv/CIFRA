@@ -41,6 +41,30 @@ export const budgetBodySchema = z.object({
   months: z.number().int().min(1).max(MAX_BUDGET_MONTHS),
 });
 
+/**
+ * Recorrência. Os campos de calendário são opcionais: o que não vier é deduzido
+ * da data de início pelo serviço.
+ */
+export const recurrenceBodySchema = z
+  .object({
+    type: z.enum(['income', 'expense']),
+    amountCents: z.number().int().positive().max(MAX_AMOUNT_CENTS),
+    description: z.string().trim().min(1).max(MAX_DESCRIPTION_LENGTH),
+    category: z.string().trim().min(1).max(MAX_CATEGORY_LENGTH),
+    accountId: z.string().trim().min(1).max(64).nullish(),
+    frequency: z.enum(['weekly', 'monthly', 'yearly']),
+    dayOfMonth: z.number().int().min(1).max(31).optional(),
+    weekday: z.number().int().min(0).max(6).optional(),
+    month: z.number().int().min(1).max(12).optional(),
+    startDate: isoDateSchema,
+    endDate: isoDateSchema.nullish(),
+    active: z.boolean().optional(),
+  })
+  .refine((value) => !value.endDate || value.endDate >= value.startDate, {
+    path: ['endDate'],
+    message: 'end_before_start',
+  });
+
 const balanceCentsSchema = z.number().int().min(-MAX_AMOUNT_CENTS).max(MAX_AMOUNT_CENTS);
 
 export const settingsBodySchema = z
@@ -106,6 +130,13 @@ const FIELD_MESSAGES: Record<string, string> = {
   accountId: 'Conta inválida.',
   limitCents: 'Informe um limite maior que zero.',
   months: `Escolha um período entre 1 e ${MAX_BUDGET_MONTHS} meses.`,
+  frequency: 'Escolha se a recorrência é semanal, mensal ou anual.',
+  dayOfMonth: 'Escolha um dia do mês entre 1 e 31.',
+  weekday: 'Escolha um dia da semana.',
+  month: 'Escolha um mês válido.',
+  startDate: 'Informe a data em que a recorrência começa.',
+  endDate: 'A data final precisa ser igual ou posterior à data de início.',
+  active: 'Opção de recorrência ativa inválida.',
   limit: 'Quantidade de itens inválida.',
   offset: 'Paginação inválida.',
   initialBalanceCents: 'Informe um saldo inicial válido.',

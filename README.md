@@ -25,6 +25,11 @@ múltiplas contas, da soma das contas cadastradas.
   categoria e data), com confirmação visual e sem recarregar a página.
 - **Histórico** agrupado por dia, com busca por descrição (ignora acentos e
   maiúsculas), filtros de tipo, categoria e período, além de edição e exclusão.
+- **Lançamentos recorrentes**: cadastre o salário, o aluguel ou uma assinatura
+  uma vez e o app registra sozinho quando a data chega. Semanal, mensal ou
+  anual, com data de início, fim opcional e pausa. O que ainda não aconteceu
+  aparece **só** como barra pontilhada no gráfico de entradas e saídas, nas
+  janelas de mais de um mês — é ilustração, não entra em nenhuma conta.
 - **Análises**: entradas × saídas por dia, evolução do saldo acumulado,
   distribuição por categoria e **comparativo com o período anterior**. Todo
   gráfico tem uma visão em tabela equivalente.
@@ -180,7 +185,7 @@ data/finance.sqlite
 Um único arquivo na raiz do projeto (criado no primeiro uso, junto com os
 arquivos `-wal`/`-shm` do SQLite). **Para fazer backup, basta copiar essa pasta.**
 
-O schema tem quatro tabelas:
+O schema tem cinco tabelas:
 
 ```text
 transactions                    accounts               budgets
@@ -190,15 +195,23 @@ transactions                    accounts               budgets
 ├── description                 ├── position           ├── months (1–24)
 ├── category                    ├── created_at         ├── created_at
 ├── date (YYYY-MM-DD)           └── updated_at         └── updated_at
-├── account_id  → conta vinculada (nulo se não usa contas)
-├── search_text → texto normalizado (busca sem acento)      settings
+├── account_id    → conta vinculada (nulo se não usa contas)
+├── recurrence_id → regra que gerou o lançamento (nulo se foi digitado)
+├── search_text   → texto normalizado (busca sem acento)    settings
 ├── created_at                                              ├── key
 └── updated_at                                              ├── value
                                                             └── updated_at
+recurrences
+├── id (uuid)                   ├── start_date / end_date (fim opcional)
+├── type, amount_cents          ├── active (pausada ou não)
+├── description, category       └── last_run_date → marca d'água: até que dia
+├── account_id                     a regra já foi considerada
+└── frequency + day_of_month | weekday | month_of_year
 ```
 
 Apagar uma conta **não apaga** as transações dela: o vínculo vira nulo
-(`ON DELETE SET NULL`), então o histórico e o saldo permanecem intactos.
+(`ON DELETE SET NULL`), então o histórico e o saldo permanecem intactos. O mesmo
+vale para uma recorrência: apagar a regra não mexe no que ela já lançou.
 
 O saldo inicial vive em `settings`, não como transação — assim ele pode ser
 alterado quantas vezes for preciso sem inventar lançamentos no histórico. Com
@@ -215,10 +228,52 @@ Há duas formas, e elas fazem coisas ligeiramente diferentes:
 
 | Como | O que faz |
 |------|-----------|
-| **Ajustes → Resetar tudo** (na interface) | Apaga transações e configurações, mantendo o arquivo. Pede que você digite `RESETAR` para confirmar |
+| **Ajustes → Resetar tudo** (na interface) | Apaga transações, contas, limites, recorrências e configurações, mantendo o arquivo. Pede que você digite `RESETAR` para confirmar |
 | `npm run db:reset` (terminal) | Apaga o arquivo do banco inteiro e recria o schema vazio |
 
 Qualquer uma das duas remove também os dados de demonstração.
+
+---
+
+## Lançamentos recorrentes
+
+Uma recorrência é um **molde**: quando a data chega, ela vira uma transação
+normal, que dali em diante vive por conta própria — pode ser editada ou apagada
+sem afetar a regra.
+
+Não existe processo em segundo plano nem agendador. Quem "roda" a recorrência é o
+próprio uso do app: **ao entrar**, antes de qualquer resposta da API, tudo que
+venceu desde a última vez é lançado de uma vez. Ficar uma semana sem abrir não
+perde nada.
+
+Três decisões que valem explicação:
+
+- **Marca d'água (`last_run_date`).** Cada regra guarda até que dia já foi
+  considerada. É o que garante que um lançamento apagado à mão **não volte
+  sozinho** — e que uma regra pausada por três meses, ao ser retomada, lance dali
+  para a frente em vez de inventar o passado.
+- **Dias que não existem.** Dia 31 numa regra mensal cai em 28 (ou 29) em
+  fevereiro, e em 30 nos meses de 30 dias. Nunca escorrega para o mês seguinte.
+- **Começar no passado é opção sua.** A data de início vem preenchida com hoje;
+  se você escolher uma data anterior, os lançamentos daquele intervalo são
+  criados na hora — foi o que você pediu.
+
+### O previsto no gráfico
+
+O que ainda não aconteceu aparece **só** no gráfico de entradas e saídas, como
+barra cinza vazada de contorno pontilhado, empilhada no lugar da barra real:
+
+- só nas janelas que mostram **mais de um mês** (3 meses, 6 meses, ano, tudo) —
+  em "Este mês" não aparece;
+- só **depois de hoje**: o que já venceu é transação de verdade, com a cor de
+  sempre;
+- **nunca** entra em saldo, totais, comparativo, distribuição por categoria,
+  limites de gasto, histórico nem na visão em tabela do gráfico. É ilustração.
+
+Vale saber que os períodos são meses de calendário fechados: "Últimos 6 meses"
+termina no último dia do mês corrente, então ali o previsto é só o que falta
+deste mês. É em **"Este ano"** que a projeção aparece por inteiro, mês a mês até
+dezembro.
 
 ---
 
@@ -272,6 +327,8 @@ Base: `/api`
 | `GET` | `/statistics?period=month` | Série temporal, distribuição por categoria e comparativo com o período anterior |
 | `GET` `POST` | `/budgets` | Limites de gasto, já com o consumo calculado |
 | `PUT` `DELETE` | `/budgets/:id` | Edita e remove um limite |
+| `GET` `POST` | `/recurrences` | Lançamentos recorrentes, já com a próxima data prevista |
+| `PUT` `DELETE` | `/recurrences/:id` | Edita, pausa (`active`) e remove uma recorrência |
 | `GET` | `/settings` · `PUT` `/settings` | Nome, saldo inicial, múltiplas contas |
 | `GET` `POST` | `/accounts` | Lista e cria contas |
 | `PUT` `DELETE` | `/accounts/:id` | Edita e remove uma conta |
@@ -336,7 +393,8 @@ CIFRA/
 │
 ├── frontend/
 │   └── src/
-│       ├── components/    ui/, layout/, charts/, transactions/, dashboard/, profile/
+│       ├── components/    ui/, layout/, charts/, transactions/, recurrences/,
+│       │                  budgets/, dashboard/, profile/
 │       ├── context/       período, atualização de dados, toasts, diálogo
 │       ├── hooks/         busca de dados e tema
 │       ├── lib/           cliente da API e formatação
@@ -360,7 +418,7 @@ descartável, sem mocks.
 npm test
 ```
 
-**Backend (106 testes)** — a lógica financeira é o foco:
+**Backend (125 testes)** — a lógica financeira é o foco:
 
 - saldo inicial + entradas − saídas, incluindo alteração do saldo inicial sem
   perder histórico;
@@ -377,6 +435,12 @@ npm test
   mesmo tamanho e virada de ano;
 - limites de gasto: janela de N meses, soma só das saídas da categoria, aviso a
   partir de 90%, estouro acima de 100% e recusa de limite duplicado;
+- recorrências: datas semanais, mensais e anuais (inclusive dia 31 em fevereiro),
+  recorte por início e fim, lançamento de tudo que venceu, sem duplicar ao abrir
+  de novo, sem recriar o que foi apagado à mão, regra pausada que não retroage ao
+  voltar, e histórico preservado ao apagar a regra;
+- previsão do gráfico: só em janelas de mais de um mês, só depois de hoje, e
+  fora de saldo, totais e distribuição por categoria;
 - comparativo: totais do período anterior e variação percentual, inclusive
   quando a base é zero;
 - distribuição por categoria e percentuais;
@@ -386,11 +450,13 @@ npm test
 - API completa por HTTP: códigos de status, mensagens amigáveis, JSON inválido,
   rota inexistente e ausência de stack trace nas respostas.
 
-**Frontend (31 testes)** — formatação monetária, aritmética de meses e rótulos de
+**Frontend (38 testes)** — formatação monetária, aritmética de meses e rótulos de
 janela, o fluxo do diálogo de transação (digitação convertida em centavos,
 bloqueio com mensagens de erro, seleção de conta obrigatória quando o modo está
-ligado, erro do servidor e edição pré-preenchida) e o painel de contas (listagem
-com soma, inclusão, edição ao sair do campo e remoção).
+ligado, erro do servidor e edição pré-preenchida), o diálogo de recorrência
+(calendário que muda com a frequência, data final anterior ao início e envio em
+centavos) e o painel de contas (listagem com soma, inclusão, edição ao sair do
+campo e remoção).
 
 ---
 

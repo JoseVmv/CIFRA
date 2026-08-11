@@ -1,5 +1,5 @@
 import type { DatabaseSync } from 'node:sqlite';
-import { daysBetween, eachDay, eachMonth, today } from '../domain/dates';
+import { addDays, daysBetween, eachDay, eachMonth, today } from '../domain/dates';
 import type {
   CategorySlice,
   Comparison,
@@ -10,6 +10,7 @@ import type {
   Summary,
   TransactionType,
 } from '../domain/types';
+import type { PendingTotals, RecurrencesService } from './recurrences.service';
 import type { SettingsService } from './settings.service';
 import type { TransactionsService } from './transactions.service';
 
@@ -58,6 +59,7 @@ export function createAnalyticsService(
   db: DatabaseSync,
   settings: SettingsService,
   transactions: TransactionsService,
+  recurrences: RecurrencesService,
 ) {
   function readTotals(where: SqlFragment, extraParams: string[] = []): Totals {
     const row = db
@@ -123,6 +125,35 @@ export function createAnalyticsService(
     }));
   }
 
+  /**
+   * Previsão ilustrativa das recorrências que ainda não aconteceram, somada por
+   * bucket. Ela existe só para o gráfico de barras — nenhum outro número do app
+   * a enxerga — e só quando a janela mostra mais de um mês, que é onde há espaço
+   * para o que vem depois de hoje.
+   */
+  function pendingByBucket(
+    from: string,
+    to: string,
+    granularity: Granularity,
+  ): Map<string, PendingTotals> {
+    const byBucket = new Map<string, PendingTotals>();
+    if (from.slice(0, 7) === to.slice(0, 7)) return byBucket;
+
+    const tomorrow = addDays(today(), 1);
+    const start = tomorrow > from ? tomorrow : from;
+    if (start > to) return byBucket;
+
+    for (const [date, totals] of recurrences.projectBetween(start, to)) {
+      const bucket = granularity === 'day' ? date : date.slice(0, 7);
+      const entry = byBucket.get(bucket) ?? { incomeCents: 0, expenseCents: 0 };
+      entry.incomeCents += totals.incomeCents;
+      entry.expenseCents += totals.expenseCents;
+      byBucket.set(bucket, entry);
+    }
+
+    return byBucket;
+  }
+
   function buildSeries(
     from: string,
     to: string,
@@ -144,14 +175,23 @@ export function createAnalyticsService(
 
     const byBucket = new Map(rows.map((row) => [row.bucket, row]));
     const buckets = granularity === 'day' ? eachDay(from, to) : eachMonth(from, to);
+    const pending = pendingByBucket(from, to, granularity);
 
     let runningBalance = startingBalance;
     return buckets.map((bucket) => {
       const entry = byBucket.get(bucket);
       const incomeCents = entry?.income ?? 0;
       const expenseCents = entry?.expense ?? 0;
+      // O previsto fica de fora do saldo acumulado: ele ainda não aconteceu.
       runningBalance += incomeCents - expenseCents;
-      return { bucket, incomeCents, expenseCents, balanceCents: runningBalance };
+      return {
+        bucket,
+        incomeCents,
+        expenseCents,
+        balanceCents: runningBalance,
+        pendingIncomeCents: pending.get(bucket)?.incomeCents ?? 0,
+        pendingExpenseCents: pending.get(bucket)?.expenseCents ?? 0,
+      };
     });
   }
 

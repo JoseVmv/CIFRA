@@ -18,6 +18,7 @@ interface TransactionRow {
   date: string;
   account_id: string | null;
   account_name: string | null;
+  recurrence_id: string | null;
   created_at: string;
   updated_at: string;
 }
@@ -43,6 +44,7 @@ function toTransaction(row: TransactionRow): Transaction {
     date: row.date,
     accountId: row.account_id,
     accountName: row.account_name,
+    recurrenceId: row.recurrence_id,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
@@ -112,9 +114,9 @@ export function createTransactionsService(db: DatabaseSync) {
   const selectById = db.prepare(`${SELECT_BASE} WHERE t.id = ?`);
   const insert = db.prepare(
     `INSERT INTO transactions
-       (id, type, amount_cents, description, category, date, account_id,
+       (id, type, amount_cents, description, category, date, account_id, recurrence_id,
         search_text, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const updateStatement = db.prepare(
     `UPDATE transactions
@@ -178,6 +180,7 @@ export function createTransactionsService(db: DatabaseSync) {
       input.category,
       input.date,
       resolveAccountId(input.accountId),
+      input.recurrenceId ?? null,
       normalizeSearch(`${input.description} ${input.category}`),
       now,
       now,
@@ -185,6 +188,7 @@ export function createTransactionsService(db: DatabaseSync) {
     return getById(id);
   }
 
+  /** `recurrence_id` fica de fora de propósito: editar não apaga a origem. */
   function update(id: string, input: TransactionInput): Transaction {
     getById(id); // garante 404 antes de tentar escrever
     updateStatement.run(

@@ -338,6 +338,53 @@ describe('API', () => {
     expect((await api('/api/budgets')).body.items).toHaveLength(0);
   });
 
+  it('percorre o ciclo completo de uma recorrência', async () => {
+    // Data futura de propósito: aqui o foco é o contrato da API, não o
+    // lançamento automático (coberto nos testes de serviço).
+    const salario = {
+      type: 'income',
+      amountCents: 480_000,
+      description: 'Salário',
+      category: 'Salário',
+      frequency: 'monthly',
+      dayOfMonth: 5,
+      startDate: '2099-01-05',
+    };
+
+    const created = await api('/api/recurrences', {
+      method: 'POST',
+      body: JSON.stringify(salario),
+    });
+    expect(created.status).toBe(201);
+    expect(created.body.active).toBe(true);
+    expect(created.body.nextDate).toBe('2099-01-05');
+
+    const listed = await api('/api/recurrences');
+    expect(listed.body.items).toHaveLength(1);
+
+    const paused = await api(`/api/recurrences/${created.body.id}`, {
+      method: 'PUT',
+      body: JSON.stringify({ ...salario, active: false }),
+    });
+    expect(paused.status).toBe(200);
+    expect(paused.body.active).toBe(false);
+
+    const invalid = await api('/api/recurrences', {
+      method: 'POST',
+      body: JSON.stringify({ ...salario, endDate: '2098-01-01' }),
+    });
+    expect(invalid.status).toBe(422);
+    expect(invalid.body.error.message).toMatch(/data final/i);
+
+    expect((await api(`/api/recurrences/${created.body.id}`, { method: 'DELETE' })).status).toBe(
+      204,
+    );
+    expect((await api(`/api/recurrences/${created.body.id}`, { method: 'DELETE' })).status).toBe(
+      404,
+    );
+    expect((await api('/api/recurrences')).body.items).toHaveLength(0);
+  });
+
   it('recusa apagar tudo sem a confirmação explícita', async () => {
     await api('/api/transactions', { method: 'POST', body: JSON.stringify(newExpense) });
 

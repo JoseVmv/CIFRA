@@ -64,6 +64,40 @@ const MIGRATIONS: readonly string[] = [
     updated_at  TEXT    NOT NULL
   );
   `,
+
+  // 5. Recorrências: moldes que viram transações de verdade quando a data chega.
+  //    `day_of_month`, `weekday` e `month_of_year` existem sempre; qual deles vale
+  //    depende de `frequency`.
+  `
+  CREATE TABLE recurrences (
+    id            TEXT PRIMARY KEY,
+    type          TEXT    NOT NULL CHECK (type IN ('income', 'expense')),
+    amount_cents  INTEGER NOT NULL CHECK (amount_cents > 0),
+    description   TEXT    NOT NULL CHECK (length(description) BETWEEN 1 AND 140),
+    category      TEXT    NOT NULL CHECK (length(category) BETWEEN 1 AND 40),
+    account_id    TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+    frequency     TEXT    NOT NULL CHECK (frequency IN ('weekly', 'monthly', 'yearly')),
+    day_of_month  INTEGER NOT NULL CHECK (day_of_month BETWEEN 1 AND 31),
+    weekday       INTEGER NOT NULL CHECK (weekday BETWEEN 0 AND 6),
+    month_of_year INTEGER NOT NULL CHECK (month_of_year BETWEEN 1 AND 12),
+    start_date    TEXT    NOT NULL CHECK (start_date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    end_date      TEXT,
+    active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+    -- Marca d'água: até esta data a regra já foi considerada. Nada é criado
+    -- antes dela, então apagar um lançamento gerado não o faz voltar.
+    last_run_date TEXT,
+    created_at    TEXT    NOT NULL,
+    updated_at    TEXT    NOT NULL
+  );
+
+  ALTER TABLE transactions
+    ADD COLUMN recurrence_id TEXT REFERENCES recurrences(id) ON DELETE SET NULL;
+
+  -- Uma regra cai no máximo uma vez por dia: o índice impede lançamento repetido.
+  CREATE UNIQUE INDEX idx_transactions_recurrence_date
+      ON transactions (recurrence_id, date)
+   WHERE recurrence_id IS NOT NULL;
+  `,
 ];
 
 export function runMigrations(db: DatabaseSync): void {

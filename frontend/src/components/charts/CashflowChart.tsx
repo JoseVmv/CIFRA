@@ -7,7 +7,15 @@ import {
   XAxis,
   YAxis,
 } from 'recharts';
-import { BAR_RADIUS, CHART_COLORS, MAX_BAR_SIZE, xAxisProps, yAxisProps } from './chartTheme';
+import {
+  BAR_RADIUS,
+  CHART_COLORS,
+  MAX_BAR_SIZE,
+  PENDING_BAR,
+  xAxisProps,
+  yAxisProps,
+} from './chartTheme';
+import type { LegendItem } from './ChartCard';
 import { formatBucket, formatCompactCurrency, formatCurrency } from '../../lib/format';
 import type { SeriesPoint } from '../../types/api';
 
@@ -54,7 +62,38 @@ function Row({ color, label, value }: { color: string; label: string; value: str
   );
 }
 
-/** Entradas × saídas por dia (ou por mês, em períodos longos). */
+/**
+ * Legenda do gráfico. A marca do previsto só entra quando há algo previsto —
+ * em "Este mês" e nas janelas sem recorrência ela simplesmente não existe.
+ */
+export function cashflowLegend(series: SeriesPoint[]): LegendItem[] {
+  const legend: LegendItem[] = [
+    { label: 'Entradas', color: CHART_COLORS.income },
+    { label: 'Saídas', color: CHART_COLORS.expense },
+  ];
+
+  const hasPending = series.some(
+    (point) => point.pendingIncomeCents > 0 || point.pendingExpenseCents > 0,
+  );
+  if (hasPending) {
+    legend.push({
+      label: 'Previsto pelas recorrências',
+      color: PENDING_BAR.fill,
+      variant: 'ghost',
+    });
+  }
+
+  return legend;
+}
+
+/**
+ * Entradas × saídas por dia (ou por mês, em períodos longos).
+ *
+ * As barras pontilhadas são o que as recorrências ainda vão lançar. Elas ficam
+ * empilhadas sobre as barras reais — que valem zero no futuro — para ocupar
+ * exatamente o mesmo lugar, sem estreitar nem deslocar nada. São ilustrativas:
+ * não aparecem no resumo, na tabela nem no balão de valores.
+ */
 export function CashflowChart({ series, height = 272 }: { series: SeriesPoint[]; height?: number }) {
   return (
     <ResponsiveContainer width="100%" height={height}>
@@ -69,16 +108,34 @@ export function CashflowChart({ series, height = 272 }: { series: SeriesPoint[];
         <Bar
           dataKey="incomeCents"
           name="Entradas"
+          stackId="income"
           fill={CHART_COLORS.income}
           radius={BAR_RADIUS}
           maxBarSize={MAX_BAR_SIZE}
         />
         <Bar
+          dataKey="pendingIncomeCents"
+          name="Entradas previstas"
+          stackId="income"
+          radius={BAR_RADIUS}
+          maxBarSize={MAX_BAR_SIZE}
+          {...PENDING_BAR}
+        />
+        <Bar
           dataKey="expenseCents"
           name="Saídas"
+          stackId="expense"
           fill={CHART_COLORS.expense}
           radius={BAR_RADIUS}
           maxBarSize={MAX_BAR_SIZE}
+        />
+        <Bar
+          dataKey="pendingExpenseCents"
+          name="Saídas previstas"
+          stackId="expense"
+          radius={BAR_RADIUS}
+          maxBarSize={MAX_BAR_SIZE}
+          {...PENDING_BAR}
         />
       </BarChart>
     </ResponsiveContainer>

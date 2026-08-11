@@ -1,7 +1,18 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { openDatabase } from '../db/connection';
-import { addDays, daysBetween, eachDay, endOfMonth, isValidIsoDate, today } from '../domain/dates';
+import {
+  addDays,
+  addMonths,
+  daysBetween,
+  eachDay,
+  endOfMonth,
+  isValidIsoDate,
+  startOfMonth,
+  today,
+} from '../domain/dates';
 import { previousRange, resolveRange } from '../domain/period';
+import { nextOccurrence, occurrencesBetween, pendingFrom } from '../domain/recurrence';
+import type { Recurrence } from '../domain/types';
 import { createServices, type Services } from '.';
 import { transactionBodySchema } from '../http/validation';
 
@@ -500,6 +511,7 @@ describe('reset total', () => {
       deletedTransactions: 0,
       deletedAccounts: 0,
       deletedBudgets: 0,
+      deletedRecurrences: 0,
       clearedSettings: false,
     });
   });
@@ -1079,5 +1091,242 @@ describe('saldo inicial com múltiplas contas', () => {
     expect(services.accounts.count()).toBe(0);
     expect(services.settings.get().useMultipleAccounts).toBe(false);
     expect(services.settings.get().initialBalanceCents).toBe(0);
+  });
+});
+
+describe('datas em que uma recorrência cai', () => {
+  function rule(overrides: Partial<Recurrence> = {}): Recurrence {
+    return {
+      id: 'regra',
+      type: 'expense',
+      amountCents: 10_000,
+      description: 'Assinatura',
+      category: 'Assinaturas',
+      accountId: null,
+      frequency: 'monthly',
+      dayOfMonth: 1,
+      weekday: 1,
+      month: 1,
+      startDate: '2026-01-01',
+      endDate: null,
+      active: true,
+      lastRunDate: null,
+      createdAt: '',
+      updatedAt: '',
+      ...overrides,
+    };
+  }
+
+  it('encolhe o dia 31 nos meses que não têm', () => {
+    const dates = occurrencesBetween(rule({ dayOfMonth: 31 }), '2026-01-01', '2026-04-30');
+    expect(dates).toEqual(['2026-01-31', '2026-02-28', '2026-03-31', '2026-04-30']);
+  });
+
+  it('semanal cai sempre no mesmo dia da semana', () => {
+    // 10/08/2026 é uma segunda-feira.
+    const dates = occurrencesBetween(
+      rule({ frequency: 'weekly', weekday: 1 }),
+      '2026-08-05',
+      '2026-08-31',
+    );
+    expect(dates).toEqual(['2026-08-10', '2026-08-17', '2026-08-24', '2026-08-31']);
+  });
+
+  it('anual cai uma vez por ano, no mês escolhido', () => {
+    const dates = occurrencesBetween(
+      rule({ frequency: 'yearly', month: 3, dayOfMonth: 10 }),
+      '2026-01-01',
+      '2028-12-31',
+    );
+    expect(dates).toEqual(['2026-03-10', '2027-03-10', '2028-03-10']);
+  });
+
+  it('não cai antes do início nem depois do fim da própria regra', () => {
+    const limited = rule({ dayOfMonth: 15, startDate: '2026-02-20', endDate: '2026-05-01' });
+    expect(occurrencesBetween(limited, '2026-01-01', '2026-12-31')).toEqual([
+      '2026-03-15',
+      '2026-04-15',
+    ]);
+  });
+
+  it('a marca d’água move o ponto de partida', () => {
+    expect(pendingFrom(rule())).toBe('2026-01-01');
+    expect(pendingFrom(rule({ lastRunDate: '2026-03-20' }))).toBe('2026-03-21');
+  });
+
+  it('a próxima data considera o que já foi lançado', () => {
+    const monthly = rule({ dayOfMonth: 5, lastRunDate: '2026-03-20' });
+    expect(nextOccurrence(monthly, pendingFrom(monthly))).toBe('2026-04-05');
+  });
+});
+
+describe('recorrências', () => {
+  let services: Services;
+
+  /** Dia de hoje: usar o mesmo dia do mês deixa o teste independente da data. */
+  const TODAY_DAY = Number(TODAY.slice(8, 10));
+
+  const SALARY = {
+    type: 'income' as const,
+    amountCents: 480_000,
+    description: 'Salário',
+    category: 'Salário',
+    frequency: 'monthly' as const,
+    dayOfMonth: 1,
+  };
+
+  beforeEach(() => {
+    services = setup();
+  });
+
+  it('lança de uma vez tudo que venceu desde a data de início', () => {
+    services.recurrences.create({ ...SALARY, startDate: startOfMonth(addMonths(TODAY, -2)) });
+
+    // Três dias 1: dois meses atrás, mês passado e este mês.
+    expect(services.transactions.count()).toBe(3);
+    expect(services.analytics.currentBalanceCents()).toBe(3 * 480_000);
+  });
+
+  it('não lança de novo quando o app abre outra vez', () => {
+    services.recurrences.create({ ...SALARY, startDate: startOfMonth(addMonths(TODAY, -1)) });
+    expect(services.transactions.count()).toBe(2);
+
+    services.recurrences.catchUp();
+    services.recurrences.catchUp();
+
+    expect(services.transactions.count()).toBe(2);
+  });
+
+  it('não recria um lançamento apagado à mão', () => {
+    services.recurrences.create({ ...SALARY, startDate: startOfMonth(addMonths(TODAY, -1)) });
+    const apagado = services.transactions.list().items[0];
+    services.transactions.remove(apagado!.id);
+
+    services.recurrences.catchUp();
+
+    expect(services.transactions.count()).toBe(1);
+  });
+
+  it('respeita a data final', () => {
+    services.recurrences.create({
+      ...SALARY,
+      startDate: startOfMonth(addMonths(TODAY, -3)),
+      endDate: endOfMonth(addMonths(TODAY, -2)),
+    });
+    expect(services.transactions.count()).toBe(2);
+  });
+
+  it('pausada não lança nada — e não retroage ao ser retomada', () => {
+    const startDate = startOfMonth(addMonths(TODAY, -2));
+    const regra = services.recurrences.create({ ...SALARY, startDate, active: false });
+    expect(services.transactions.count()).toBe(0);
+
+    services.recurrences.update(regra.id, { ...SALARY, startDate, active: true });
+
+    expect(services.transactions.count()).toBe(0);
+  });
+
+  it('marca o lançamento gerado e diz qual é o próximo', () => {
+    const regra = services.recurrences.create({
+      ...SALARY,
+      dayOfMonth: TODAY_DAY,
+      startDate: TODAY,
+    });
+
+    const gerada = services.transactions.list().items[0];
+    expect(gerada?.date).toBe(TODAY);
+    expect(gerada?.recurrenceId).toBe(regra.id);
+    expect(regra.nextDate).toBe(addMonths(TODAY, 1));
+  });
+
+  it('apagar a regra não apaga o que ela já lançou', () => {
+    const regra = services.recurrences.create({
+      ...SALARY,
+      dayOfMonth: TODAY_DAY,
+      startDate: TODAY,
+    });
+    const gerada = services.transactions.list().items[0]!;
+
+    services.recurrences.remove(regra.id);
+
+    expect(services.transactions.count()).toBe(1);
+    expect(services.transactions.getById(gerada.id).recurrenceId).toBeNull();
+  });
+
+  it('o reset também apaga as recorrências', () => {
+    services.recurrences.create({ ...SALARY, dayOfMonth: TODAY_DAY, startDate: TODAY });
+
+    const result = services.maintenance.resetAll();
+
+    expect(result.deletedRecurrences).toBe(1);
+    expect(services.recurrences.list()).toHaveLength(0);
+  });
+});
+
+describe('previsão das recorrências no gráfico', () => {
+  let services: Services;
+
+  const TODAY_DAY = Number(TODAY.slice(8, 10));
+  const SALARY = {
+    type: 'income' as const,
+    amountCents: 480_000,
+    description: 'Salário',
+    category: 'Salário',
+    frequency: 'monthly' as const,
+    dayOfMonth: TODAY_DAY,
+    startDate: TODAY,
+  };
+
+  // Quatro meses: passa dos 92 dias, então a série é mensal e o previsto cai em
+  // buckets `YYYY-MM` — o mesmo caminho das opções de 3 meses, 6 meses e ano.
+  const window = {
+    from: startOfMonth(TODAY),
+    to: endOfMonth(addMonths(TODAY, 3)),
+    period: 'custom' as const,
+  };
+  const thisMonth = resolveRange({ period: 'month', reference: TODAY });
+
+  beforeEach(() => {
+    services = setup();
+    services.recurrences.create(SALARY);
+  });
+
+  it('desenha o previsto só nos meses que ainda não chegaram', () => {
+    const { series } = services.analytics.getStatistics(window);
+    const [current, ...ahead] = series;
+
+    // O lançamento de hoje já é real: não pode aparecer duas vezes.
+    expect(current?.incomeCents).toBe(480_000);
+    expect(current?.pendingIncomeCents).toBe(0);
+
+    expect(ahead).toHaveLength(3);
+    expect(ahead.every((point) => point.incomeCents === 0)).toBe(true);
+    expect(ahead.every((point) => point.pendingIncomeCents === 480_000)).toBe(true);
+  });
+
+  it('o previsto não entra em saldo, totais nem categorias', () => {
+    const statistics = services.analytics.getStatistics(window);
+
+    expect(statistics.totals.incomeCents).toBe(480_000);
+    expect(statistics.series.at(-1)?.balanceCents).toBe(480_000);
+    expect(statistics.incomeByCategory).toEqual([
+      { category: 'Salário', totalCents: 480_000, percent: 100, count: 1 },
+    ]);
+    expect(services.analytics.getSummary(window).incomeCents).toBe(480_000);
+    expect(services.analytics.currentBalanceCents()).toBe(480_000);
+  });
+
+  it('não projeta nada quando a janela mostra um mês só', () => {
+    const { series } = services.analytics.getStatistics(thisMonth);
+    expect(series.every((point) => point.pendingIncomeCents === 0)).toBe(true);
+    expect(series.every((point) => point.pendingExpenseCents === 0)).toBe(true);
+  });
+
+  it('regra pausada some também da previsão', () => {
+    const regra = services.recurrences.list()[0]!;
+    services.recurrences.update(regra.id, { ...SALARY, active: false });
+
+    const { series } = services.analytics.getStatistics(window);
+    expect(series.every((point) => point.pendingIncomeCents === 0)).toBe(true);
   });
 });

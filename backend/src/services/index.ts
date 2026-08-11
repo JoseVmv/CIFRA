@@ -3,6 +3,7 @@ import { createAccountsService, type AccountsService } from './accounts.service'
 import { createAnalyticsService, type AnalyticsService } from './analytics.service';
 import { createBudgetsService, type BudgetsService } from './budgets.service';
 import { createMaintenanceService, type MaintenanceService } from './maintenance.service';
+import { createRecurrencesService, type RecurrencesService } from './recurrences.service';
 import { createSettingsService, type SettingsService } from './settings.service';
 import { createTransactionsService, type TransactionsService } from './transactions.service';
 
@@ -11,6 +12,7 @@ export interface Services {
   accounts: AccountsService;
   settings: SettingsService;
   transactions: TransactionsService;
+  recurrences: RecurrencesService;
   analytics: AnalyticsService;
   budgets: BudgetsService;
   maintenance: MaintenanceService;
@@ -24,8 +26,9 @@ export function createServices(db: DatabaseSync): Services {
   const accounts = createAccountsService(db);
   const settings = createSettingsService(db, accounts);
   const transactions = createTransactionsService(db);
-  const analytics = createAnalyticsService(db, settings, transactions);
+  const recurrences = createRecurrencesService(db, transactions);
+  const analytics = createAnalyticsService(db, settings, transactions, recurrences);
   const budgets = createBudgetsService(db);
   const maintenance = createMaintenanceService(db);
-  return { db, accounts, settings, transactions, analytics, budgets, maintenance };
+  return { db, accounts, settings, transactions, recurrences, analytics, budgets, maintenance };
 }

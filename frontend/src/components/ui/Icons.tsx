@@ -158,6 +158,24 @@ export const IconUser = (props: IconProps) => (
   </Icon>
 );
 
+export const IconRepeat = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M17 2l4 4-4 4M3 11V9a4 4 0 0 1 4-4h14M7 22l-4-4 4-4M21 13v2a4 4 0 0 1-4 4H3" />
+  </Icon>
+);
+
+export const IconPause = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M9 5v14M15 5v14" />
+  </Icon>
+);
+
+export const IconPlay = (props: IconProps) => (
+  <Icon {...props}>
+    <path d="M7 4.5v15l13-7.5z" />
+  </Icon>
+);
+
 export const IconEmpty = (props: IconProps) => (
   <Icon {...props}>
     <path d="M3 15h4l1.5 3h7L17 15h4M5 15l2.5-8h9L19 15M5 15v4a1 1 0 0 0 1 1h12a1 1 0 0 0 1-1v-4" />
