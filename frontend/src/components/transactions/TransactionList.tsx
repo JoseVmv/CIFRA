@@ -1,7 +1,14 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Modal } from '../ui/Modal';
 import { Button, IconButton } from '../ui/Button';
-import { IconArrowDown, IconArrowUp, IconPencil, IconRepeat, IconTrash } from '../ui/Icons';
+import {
+  IconArrowDown,
+  IconArrowUp,
+  IconPencil,
+  IconRepeat,
+  IconTransfer,
+  IconTrash,
+} from '../ui/Icons';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
 import { useTransactionDialog } from '../../context/TransactionDialogContext';
@@ -27,10 +34,11 @@ function groupByDay(transactions: Transaction[]): DayGroup[] {
   return [...groups.entries()].map(([date, items]) => ({
     date,
     transactions: items,
-    netCents: items.reduce(
-      (sum, item) => sum + (item.type === 'income' ? item.amountCents : -item.amountCents),
-      0,
-    ),
+    // Transferência não muda o quanto você tem: fica fora do total do dia.
+    netCents: items.reduce((sum, item) => {
+      if (item.type === 'transfer') return sum;
+      return sum + (item.type === 'income' ? item.amountCents : -item.amountCents);
+    }, 0),
   }));
 }
 
@@ -93,6 +101,7 @@ interface TransactionRowProps {
 function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps) {
   const { openEdit } = useTransactionDialog();
   const income = transaction.type === 'income';
+  const transfer = transaction.type === 'transfer';
 
   return (
     <li className="group flex items-center gap-3.5 border-b border-line px-5 py-3.5 transition-colors last:border-b-0 hover:bg-surface-2 sm:px-6">
@@ -100,14 +109,23 @@ function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps)
         aria-hidden
         className={cn(
           'grid size-9 shrink-0 place-items-center rounded-xl',
-          income ? 'bg-income-soft text-income-text' : 'bg-expense-soft text-expense-text',
+          transfer && 'bg-surface-inset text-ink-2',
+          !transfer && income && 'bg-income-soft text-income-text',
+          !transfer && !income && 'bg-expense-soft text-expense-text',
         )}
       >
-        {income ? <IconArrowUp /> : <IconArrowDown />}
+        {transfer ? <IconTransfer /> : income ? <IconArrowUp /> : <IconArrowDown />}
       </span>
 
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium text-ink">{transaction.description}</p>
+        <p className="truncate text-sm font-medium text-ink">
+          {transaction.description}
+          {transaction.installmentTotal && (
+            <span className="tnum ml-1.5 text-[12px] font-normal text-ink-3">
+              {transaction.installmentNumber}/{transaction.installmentTotal}
+            </span>
+          )}
+        </p>
         <p className="mt-0.5 flex items-center gap-1.5 truncate text-[12px] text-ink-3">
           {transaction.recurrenceId && (
             <IconRepeat
@@ -117,14 +135,25 @@ function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps)
             />
           )}
           <span className="truncate">
-            {transaction.category}
-            {transaction.accountName && (
+            {transfer ? (
               <>
-                <span aria-hidden> · </span>
-                {transaction.accountName}
+                {transaction.accountName ?? 'conta removida'}
+                <span aria-hidden> → </span>
+                {transaction.transferAccountName ?? 'conta removida'}
+                <span className="sr-only"> — transferência entre contas</span>
+              </>
+            ) : (
+              <>
+                {transaction.category}
+                {transaction.accountName && (
+                  <>
+                    <span aria-hidden> · </span>
+                    {transaction.accountName}
+                  </>
+                )}
+                <span className="sr-only"> — {income ? 'entrada' : 'saída'}</span>
               </>
             )}
-            <span className="sr-only"> — {income ? 'entrada' : 'saída'}</span>
           </span>
         </p>
       </div>
@@ -132,10 +161,14 @@ function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps)
       <span
         className={cn(
           'tnum shrink-0 text-sm font-semibold whitespace-nowrap',
-          income ? 'text-income-text' : 'text-expense-text',
+          transfer && 'text-ink-2',
+          !transfer && income && 'text-income-text',
+          !transfer && !income && 'text-expense-text',
         )}
       >
-        {formatSigned(transaction.amountCents, transaction.type)}
+        {transaction.type === 'transfer'
+          ? formatCurrency(transaction.amountCents)
+          : formatSigned(transaction.amountCents, transaction.type)}
       </span>
 
       {!compact && (
@@ -170,13 +203,26 @@ function DeleteDialog({
   const { refresh } = useFinance();
   const { notify } = useToast();
   const [deleting, setDeleting] = useState(false);
+  const [wholePurchase, setWholePurchase] = useState(false);
+
+  const installments = transaction?.installmentTotal ?? 0;
+
+  // Cada abertura do diálogo começa com a escolha mais conservadora.
+  useEffect(() => {
+    if (transaction) setWholePurchase(false);
+  }, [transaction]);
 
   async function handleDelete(): Promise<void> {
     if (!transaction) return;
     setDeleting(true);
     try {
-      await api.deleteTransaction(transaction.id);
-      notify('Transação excluída');
+      if (wholePurchase) {
+        const { deleted } = await api.deleteInstallmentGroup(transaction.id);
+        notify(`${deleted} parcelas excluídas`);
+      } else {
+        await api.deleteTransaction(transaction.id);
+        notify('Transação excluída');
+      }
       refresh();
       onClose();
     } catch (error) {
@@ -188,6 +234,8 @@ function DeleteDialog({
       setDeleting(false);
     }
   }
+
+  const transfer = transaction?.type === 'transfer';
 
   return (
     <Modal
@@ -208,19 +256,52 @@ function DeleteDialog({
       }
     >
       {transaction && (
-        <div className="rounded-xl border border-line bg-surface-2 px-4 py-3">
-          <p className="text-sm font-medium text-ink">{transaction.description}</p>
-          <p className="mt-1 text-[13px] text-ink-3">
-            {transaction.category} · {formatRelativeDay(transaction.date)}
-          </p>
-          <p
-            className={cn(
-              'tnum mt-2 text-base font-semibold',
-              transaction.type === 'income' ? 'text-income-text' : 'text-expense-text',
-            )}
-          >
-            {formatSigned(transaction.amountCents, transaction.type)}
-          </p>
+        <div className="flex flex-col gap-4">
+          <div className="rounded-xl border border-line bg-surface-2 px-4 py-3">
+            <p className="text-sm font-medium text-ink">
+              {transaction.description}
+              {transaction.installmentTotal && (
+                <span className="tnum ml-1.5 text-[13px] font-normal text-ink-3">
+                  {transaction.installmentNumber}/{transaction.installmentTotal}
+                </span>
+              )}
+            </p>
+            <p className="mt-1 text-[13px] text-ink-3">
+              {transfer
+                ? `${transaction.accountName ?? 'conta removida'} → ${transaction.transferAccountName ?? 'conta removida'}`
+                : transaction.category}{' '}
+              · {formatRelativeDay(transaction.date)}
+            </p>
+            <p
+              className={cn(
+                'tnum mt-2 text-base font-semibold',
+                transfer && 'text-ink-2',
+                !transfer && transaction.type === 'income' && 'text-income-text',
+                !transfer && transaction.type === 'expense' && 'text-expense-text',
+              )}
+            >
+              {transaction.type === 'transfer'
+                ? formatCurrency(transaction.amountCents)
+                : formatSigned(transaction.amountCents, transaction.type)}
+            </p>
+          </div>
+
+          {installments > 1 && (
+            <label className="flex cursor-pointer items-start gap-2.5 text-[13px] text-ink-2">
+              <input
+                type="checkbox"
+                checked={wholePurchase}
+                onChange={(event) => setWholePurchase(event.target.checked)}
+                className="mt-0.5 size-4 accent-[var(--accent)]"
+              />
+              <span>
+                Excluir as {installments} parcelas desta compra
+                <span className="mt-0.5 block text-xs text-ink-3">
+                  Sem marcar, só esta parcela sai — as outras continuam no histórico.
+                </span>
+              </span>
+            </label>
+          )}
         </div>
       )}
     </Modal>

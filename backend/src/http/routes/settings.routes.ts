@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { DEFAULT_CATEGORIES } from '../../domain/categories';
-import type { TransactionType } from '../../domain/types';
+import type { CashflowType } from '../../domain/types';
 import type { Services } from '../../services';
 import { parseOrThrow, settingsBodySchema } from '../validation';
 
@@ -19,7 +19,7 @@ export function createSettingsRouter(services: Services): Router {
   /** Categorias padrão + as que o usuário já criou, sem duplicatas. */
   router.get('/categories', (_req, res) => {
     const used = services.transactions.categoriesInUse();
-    const merge = (type: TransactionType): string[] => {
+    const merge = (type: CashflowType): string[] => {
       const seen = new Set<string>(DEFAULT_CATEGORIES[type]);
       for (const entry of used) {
         if (entry.type === type) seen.add(entry.category);

@@ -1094,6 +1094,241 @@ describe('saldo inicial com múltiplas contas', () => {
   });
 });
 
+describe('transferência entre contas', () => {
+  let services: Services;
+  let origem: string;
+  let destino: string;
+
+  const range = resolveRange({ period: 'all' });
+
+  function transferir(amountCents: number): void {
+    services.transactions.create({
+      type: 'transfer',
+      amountCents,
+      description: 'Guardar dinheiro',
+      category: 'ignorada',
+      date: TODAY,
+      accountId: origem,
+      transferAccountId: destino,
+    });
+  }
+
+  beforeEach(() => {
+    services = setup();
+    origem = services.accounts.create({ name: 'Conta corrente', balanceCents: 300_000 }).id;
+    destino = services.accounts.create({ name: 'Poupança', balanceCents: 100_000 }).id;
+    services.settings.update({ useMultipleAccounts: true });
+  });
+
+  it('move o dinheiro de uma conta para a outra', () => {
+    transferir(50_000);
+
+    const [corrente, poupanca] = services.accounts.list();
+    expect(corrente?.currentBalanceCents).toBe(250_000);
+    expect(poupanca?.currentBalanceCents).toBe(150_000);
+  });
+
+  it('não é entrada nem saída: o saldo total não se mexe', () => {
+    const antes = services.analytics.currentBalanceCents();
+    transferir(50_000);
+
+    expect(services.analytics.currentBalanceCents()).toBe(antes);
+
+    const summary = services.analytics.getSummary(range);
+    expect(summary.incomeCents).toBe(0);
+    expect(summary.expenseCents).toBe(0);
+    expect(summary.netCents).toBe(0);
+    expect(summary.transactionCount).toBe(0);
+  });
+
+  it('fica fora da distribuição por categoria e dos limites de gasto', () => {
+    services.budgets.create({ category: 'Transferência', limitCents: 10_000, months: 1 });
+    transferir(50_000);
+
+    const statistics = services.analytics.getStatistics(range);
+    expect(statistics.expensesByCategory).toEqual([]);
+    expect(statistics.series.every((point) => point.expenseCents === 0)).toBe(true);
+    expect(services.budgets.listWithUsage()[0]?.spentCents).toBe(0);
+  });
+
+  it('guarda a categoria própria, sem deixar o usuário escolher', () => {
+    transferir(50_000);
+    expect(services.transactions.list().items[0]?.category).toBe('Transferência');
+  });
+
+  it('recusa destino igual à origem, ou sem destino', () => {
+    expect(() =>
+      services.transactions.create({
+        type: 'transfer',
+        amountCents: 1_000,
+        description: 'x',
+        category: 'x',
+        date: TODAY,
+        accountId: origem,
+        transferAccountId: origem,
+      }),
+    ).toThrow(/diferente/i);
+
+    expect(() =>
+      services.transactions.create({
+        type: 'transfer',
+        amountCents: 1_000,
+        description: 'x',
+        category: 'x',
+        date: TODAY,
+        accountId: origem,
+      }),
+    ).toThrow(/origem e a de destino/i);
+  });
+
+  it('apagar a conta de destino não apaga a transferência', () => {
+    transferir(50_000);
+    services.accounts.remove(destino);
+
+    const transferencia = services.transactions.list().items[0];
+    expect(transferencia?.type).toBe('transfer');
+    expect(transferencia?.transferAccountId).toBeNull();
+  });
+});
+
+describe('saldo atual de cada conta', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+  });
+
+  it('parte do saldo inicial e aplica o que passou pela conta', () => {
+    const conta = services.accounts.create({ name: 'Nubank', balanceCents: 100_000 });
+    services.transactions.create({
+      type: 'income',
+      amountCents: 40_000,
+      description: 'Salário',
+      category: 'Salário',
+      date: TODAY,
+      accountId: conta.id,
+    });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 15_000,
+      description: 'Mercado',
+      category: 'Alimentação',
+      date: TODAY,
+      accountId: conta.id,
+    });
+
+    const atualizada = services.accounts.getById(conta.id);
+    expect(atualizada.balanceCents).toBe(100_000); // o inicial não muda
+    expect(atualizada.currentBalanceCents).toBe(125_000);
+  });
+
+  it('não conta o que não está vinculado a conta nenhuma', () => {
+    const conta = services.accounts.create({ name: 'Nubank', balanceCents: 100_000 });
+    services.transactions.create({
+      type: 'expense',
+      amountCents: 30_000,
+      description: 'Solta',
+      category: 'Outros',
+      date: TODAY,
+    });
+
+    expect(services.accounts.getById(conta.id).currentBalanceCents).toBe(100_000);
+    expect(services.accounts.unlinkedNetCents()).toBe(-30_000);
+  });
+});
+
+describe('compra parcelada', () => {
+  let services: Services;
+
+  const COMPRA = {
+    type: 'expense' as const,
+    description: 'Câmera',
+    category: 'Compras',
+    date: '2026-08-10',
+  };
+
+  beforeEach(() => {
+    services = setup();
+  });
+
+  it('divide o total em parcelas mensais, com a sobra na primeira', () => {
+    const parcelas = services.transactions.createInstallments({
+      ...COMPRA,
+      amountCents: 100_000,
+      installments: 3,
+      amountIs: 'total',
+    });
+
+    expect(parcelas.map((parcela) => parcela.amountCents)).toEqual([33_334, 33_333, 33_333]);
+    // A soma das parcelas é exatamente o preço da compra.
+    expect(parcelas.reduce((soma, parcela) => soma + parcela.amountCents, 0)).toBe(100_000);
+    expect(parcelas.map((parcela) => parcela.date)).toEqual([
+      '2026-08-10',
+      '2026-09-10',
+      '2026-10-10',
+    ]);
+  });
+
+  it('multiplica quando o valor informado é o de cada parcela', () => {
+    const parcelas = services.transactions.createInstallments({
+      ...COMPRA,
+      amountCents: 20_000,
+      installments: 10,
+      amountIs: 'installment',
+    });
+
+    expect(parcelas).toHaveLength(10);
+    expect(parcelas.every((parcela) => parcela.amountCents === 20_000)).toBe(true);
+    expect(services.analytics.currentBalanceCents()).toBe(-200_000);
+  });
+
+  it('numera as parcelas e mantém todas no mesmo grupo', () => {
+    const parcelas = services.transactions.createInstallments({
+      ...COMPRA,
+      amountCents: 60_000,
+      installments: 3,
+      amountIs: 'total',
+    });
+
+    expect(parcelas.map((parcela) => parcela.installmentNumber)).toEqual([1, 2, 3]);
+    expect(parcelas.every((parcela) => parcela.installmentTotal === 3)).toBe(true);
+    expect(new Set(parcelas.map((parcela) => parcela.installmentGroup)).size).toBe(1);
+  });
+
+  it('cada parcela cai no mês dela', () => {
+    services.transactions.createInstallments({
+      ...COMPRA,
+      amountCents: 30_000,
+      installments: 3,
+      amountIs: 'total',
+    });
+
+    const agosto = resolveRange({ period: 'month', reference: '2026-08-15' });
+    expect(services.analytics.getSummary(agosto).expenseCents).toBe(10_000);
+  });
+
+  it('apaga a compra inteira ou só uma parcela, conforme o pedido', () => {
+    const parcelas = services.transactions.createInstallments({
+      ...COMPRA,
+      amountCents: 30_000,
+      installments: 3,
+      amountIs: 'total',
+    });
+
+    services.transactions.remove(parcelas[1]!.id);
+    expect(services.transactions.count()).toBe(2);
+
+    expect(services.transactions.removeInstallmentGroup(parcelas[0]!.id)).toBe(2);
+    expect(services.transactions.count()).toBe(0);
+  });
+
+  it('sem grupo, apagar "o grupo" apaga só aquela transação', () => {
+    const avulsa = services.transactions.create({ ...COMPRA, amountCents: 5_000 });
+    expect(services.transactions.removeInstallmentGroup(avulsa.id)).toBe(1);
+    expect(services.transactions.count()).toBe(0);
+  });
+});
+
 describe('datas em que uma recorrência cai', () => {
   function rule(overrides: Partial<Recurrence> = {}): Recurrence {
     return {

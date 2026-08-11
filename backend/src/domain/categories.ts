@@ -1,7 +1,10 @@
-import type { TransactionType } from './types';
+import type { CashflowType } from './types';
 
-/** Categorias sugeridas na interface. O usuário pode digitar outras. */
-export const DEFAULT_CATEGORIES: Record<TransactionType, readonly string[]> = {
+/**
+ * Categorias sugeridas na interface. O usuário pode digitar outras.
+ * Transferências não entram aqui: elas têm categoria própria e fixa.
+ */
+export const DEFAULT_CATEGORIES: Record<CashflowType, readonly string[]> = {
   income: ['Salário', 'Freelance', 'Investimentos', 'Vendas', 'Presente', 'Reembolso', 'Outros'],
   expense: [
     'Alimentação',

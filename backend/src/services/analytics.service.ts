@@ -1,6 +1,7 @@
 import type { DatabaseSync } from 'node:sqlite';
 import { addDays, daysBetween, eachDay, eachMonth, today } from '../domain/dates';
 import type {
+  CashflowType,
   CategorySlice,
   Comparison,
   DateRange,
@@ -8,7 +9,6 @@ import type {
   SeriesPoint,
   Statistics,
   Summary,
-  TransactionType,
 } from '../domain/types';
 import type { PendingTotals, RecurrencesService } from './recurrences.service';
 import type { SettingsService } from './settings.service';
@@ -23,10 +23,15 @@ interface Totals {
   count: number;
 }
 
+/**
+ * Transferências entre contas próprias não são receita nem despesa: elas não
+ * entram em nenhuma soma daqui, nem na contagem. O `CASE` já as ignora, e a
+ * contagem é explícita para não deixar dúvida.
+ */
 const SUM_COLUMNS = `
   COALESCE(SUM(CASE WHEN type = 'income'  THEN amount_cents END), 0) AS income,
   COALESCE(SUM(CASE WHEN type = 'expense' THEN amount_cents END), 0) AS expense,
-  COUNT(*) AS count`;
+  COUNT(CASE WHEN type <> 'transfer' THEN 1 END) AS count`;
 
 interface SqlFragment {
   sql: string;
@@ -103,7 +108,7 @@ export function createAnalyticsService(
     };
   }
 
-  function byCategory(type: TransactionType, range: DateRange): CategorySlice[] {
+  function byCategory(type: CashflowType, range: DateRange): CategorySlice[] {
     const where = rangeClause(range, ['type = ?']);
     const rows = db
       .prepare(

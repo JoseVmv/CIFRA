@@ -87,8 +87,9 @@ export function TransactionsPage() {
 
   const categoryOptions = useMemo(() => {
     if (!categories) return [];
+    // Transferência tem categoria própria e fixa: não entra na lista.
+    if (filters.type === 'income' || filters.type === 'expense') return categories[filters.type];
     const all = new Set([...categories.income, ...categories.expense]);
-    if (filters.type) return categories[filters.type];
     return [...all].sort((a, b) => a.localeCompare(b, 'pt-BR'));
   }, [categories, filters.type]);
 
@@ -159,6 +160,7 @@ export function TransactionsPage() {
               <option value="">Todos os tipos</option>
               <option value="income">Somente entradas</option>
               <option value="expense">Somente saídas</option>
+              <option value="transfer">Somente transferências</option>
             </Select>
 
             <Select

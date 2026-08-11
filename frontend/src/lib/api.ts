@@ -1,10 +1,12 @@
 import type {
   Account,
   AccountInput,
+  AccountsResponse,
   Budget,
   BudgetInput,
   BudgetUsage,
   CategoriesResponse,
+  InstallmentInput,
   Paginated,
   PeriodKey,
   Recurrence,
@@ -118,11 +120,22 @@ export const api = {
   createTransaction: (input: TransactionInput) =>
     request<Transaction>('/transactions', { method: 'POST', body: JSON.stringify(input) }),
 
+  /** Cria a compra parcelada inteira: uma transação por mês. */
+  createInstallments: (input: InstallmentInput) =>
+    request<{ items: Transaction[] }>('/transactions/installments', {
+      method: 'POST',
+      body: JSON.stringify(input),
+    }),
+
   updateTransaction: (id: string, input: TransactionInput) =>
     request<Transaction>(`/transactions/${id}`, { method: 'PUT', body: JSON.stringify(input) }),
 
   deleteTransaction: (id: string) =>
     request<void>(`/transactions/${id}`, { method: 'DELETE' }),
+
+  /** Apaga a compra parcelada inteira; devolve quantas parcelas sumiram. */
+  deleteInstallmentGroup: (id: string) =>
+    request<{ deleted: number }>(`/transactions/${id}?scope=installments`, { method: 'DELETE' }),
 
   getSummary: (period: PeriodKey, reference?: string) =>
     request<Summary>(`/summary${buildQuery({ period, reference })}`),
@@ -159,7 +172,7 @@ export const api = {
 
   getCategories: () => request<CategoriesResponse>('/categories'),
 
-  listAccounts: () => request<{ items: Account[]; totalCents: number }>('/accounts'),
+  listAccounts: () => request<AccountsResponse>('/accounts'),
 
   createAccount: (input: AccountInput) =>
     request<Account>('/accounts', { method: 'POST', body: JSON.stringify(input) }),

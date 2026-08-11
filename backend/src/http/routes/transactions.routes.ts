@@ -3,7 +3,9 @@ import { resolveRange, isPeriodKey } from '../../domain/period';
 import type { PeriodKey, TransactionFilters } from '../../domain/types';
 import type { Services } from '../../services';
 import {
+  deleteQuerySchema,
   idParamSchema,
+  installmentBodySchema,
   listQuerySchema,
   normalizeQuery,
   parseOrThrow,
@@ -52,14 +54,29 @@ export function createTransactionsRouter(services: Services): Router {
     res.status(201).json(services.transactions.create(body));
   });
 
+  /** Compra parcelada: cria todas as parcelas de uma vez. */
+  router.post('/installments', (req, res) => {
+    const body = parseOrThrow(installmentBodySchema, req.body);
+    const items = services.transactions.createInstallments(body);
+    res.status(201).json({ items });
+  });
+
   router.put('/:id', (req, res) => {
     const { id } = parseOrThrow(idParamSchema, req.params);
     const body = parseOrThrow(transactionBodySchema, req.body);
     res.json(services.transactions.update(id, body));
   });
 
+  /** `?scope=installments` apaga a compra parcelada inteira, não só esta parcela. */
   router.delete('/:id', (req, res) => {
     const { id } = parseOrThrow(idParamSchema, req.params);
+    const { scope } = parseOrThrow(deleteQuerySchema, normalizeQuery(req.query));
+
+    if (scope === 'installments') {
+      res.json({ deleted: services.transactions.removeInstallmentGroup(id) });
+      return;
+    }
+
     services.transactions.remove(id);
     res.status(204).end();
   });

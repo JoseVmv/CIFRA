@@ -7,6 +7,7 @@ interface AccountRow {
   id: string;
   name: string;
   balance_cents: number;
+  current_balance_cents: number;
   position: number;
   created_at: string;
   updated_at: string;
@@ -15,11 +16,31 @@ interface AccountRow {
 /** Trava defensiva: ninguém precisa de mais do que isso e evita listas absurdas. */
 export const MAX_ACCOUNTS = 30;
 
+/**
+ * Saldo de hoje de cada conta: o inicial, mais o que passou por ela.
+ *
+ * Para a conta de origem toda transferência é saída — daí o `ELSE` cobrir
+ * `expense` e `transfer` juntos. O que chega vem da segunda subconsulta, que
+ * olha as transferências cujo destino é esta conta.
+ */
+const CURRENT_BALANCE = `
+  a.balance_cents
+  + COALESCE((
+      SELECT SUM(CASE WHEN t.type = 'income' THEN t.amount_cents ELSE -t.amount_cents END)
+        FROM transactions t WHERE t.account_id = a.id
+    ), 0)
+  + COALESCE((
+      SELECT SUM(t.amount_cents)
+        FROM transactions t
+       WHERE t.type = 'transfer' AND t.transfer_account_id = a.id
+    ), 0) AS current_balance_cents`;
+
 function toAccount(row: AccountRow): Account {
   return {
     id: row.id,
     name: row.name,
     balanceCents: row.balance_cents,
+    currentBalanceCents: row.current_balance_cents,
     position: row.position,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
@@ -30,9 +51,11 @@ export type AccountsService = ReturnType<typeof createAccountsService>;
 
 export function createAccountsService(db: DatabaseSync) {
   const selectAll = db.prepare(
-    'SELECT * FROM accounts ORDER BY position ASC, created_at ASC',
+    `SELECT a.*, ${CURRENT_BALANCE} FROM accounts a ORDER BY a.position ASC, a.created_at ASC`,
   );
-  const selectById = db.prepare('SELECT * FROM accounts WHERE id = ?');
+  const selectById = db.prepare(
+    `SELECT a.*, ${CURRENT_BALANCE} FROM accounts a WHERE a.id = ?`,
+  );
   const insert = db.prepare(
     `INSERT INTO accounts (id, name, balance_cents, position, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?)`,
@@ -81,7 +104,7 @@ export function createAccountsService(db: DatabaseSync) {
     if (result.changes === 0) throw new NotFoundError('Conta não encontrada.');
   }
 
-  /** Soma de todas as contas — é o saldo inicial quando o modo está ativo. */
+  /** Soma dos saldos **iniciais** — é o saldo inicial do app quando o modo está ativo. */
   function totalBalanceCents(): number {
     const row = db.prepare('SELECT COALESCE(SUM(balance_cents), 0) AS total FROM accounts').get() as {
       total: number;
@@ -89,5 +112,22 @@ export function createAccountsService(db: DatabaseSync) {
     return row.total;
   }
 
-  return { list, getById, create, update, remove, count, totalBalanceCents };
+  /**
+   * Resultado das transações que não estão em conta nenhuma — em geral as de
+   * antes de o modo de múltiplas contas ser ligado. É a diferença entre o saldo
+   * do app e a soma das contas, e por isso precisa ficar visível.
+   */
+  function unlinkedNetCents(): number {
+    const row = db
+      .prepare(
+        `SELECT COALESCE(SUM(CASE WHEN type = 'income' THEN amount_cents ELSE -amount_cents END), 0)
+                AS total
+           FROM transactions
+          WHERE account_id IS NULL AND type <> 'transfer'`,
+      )
+      .get() as { total: number };
+    return row.total;
+  }
+
+  return { list, getById, create, update, remove, count, totalBalanceCents, unlinkedNetCents };
 }

@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { isValidIsoDate } from '../domain/dates';
 import { PERIOD_KEYS } from '../domain/period';
 import { RESET_CONFIRMATION } from '../services/maintenance.service';
+import { MAX_INSTALLMENTS } from '../services/transactions.service';
 import { ValidationError } from '../errors';
 
 /** R$ 1 bilhão em centavos — teto defensivo contra digitação acidental. */
@@ -23,7 +24,7 @@ const isoDateSchema = z
   .refine((value) => value >= MIN_DATE && value <= MAX_DATE, 'date_out_of_range');
 
 export const transactionBodySchema = z.object({
-  type: z.enum(['income', 'expense']),
+  type: z.enum(['income', 'expense', 'transfer']),
   amountCents: z
     .number()
     .int()
@@ -33,6 +34,14 @@ export const transactionBodySchema = z.object({
   category: z.string().trim().min(1).max(MAX_CATEGORY_LENGTH),
   date: isoDateSchema,
   accountId: z.string().trim().min(1).max(64).nullish(),
+  /** Só as transferências usam; o serviço recusa nos outros tipos. */
+  transferAccountId: z.string().trim().min(1).max(64).nullish(),
+});
+
+/** Compra parcelada: a transação-modelo mais em quantas vezes ela se divide. */
+export const installmentBodySchema = transactionBodySchema.extend({
+  installments: z.number().int().min(2).max(MAX_INSTALLMENTS),
+  amountIs: z.enum(['total', 'installment']),
 });
 
 export const budgetBodySchema = z.object({
@@ -84,7 +93,7 @@ export const accountBodySchema = z.object({
 export const listQuerySchema = z.object({
   search: z.string().trim().max(120).optional(),
   category: z.string().trim().max(MAX_CATEGORY_LENGTH).optional(),
-  type: z.enum(['income', 'expense']).optional(),
+  type: z.enum(['income', 'expense', 'transfer']).optional(),
   accountId: z.string().trim().max(64).optional(),
   period: z.enum(PERIOD_KEYS as unknown as [string, ...string[]]).optional(),
   /** Mês em torno do qual o período é calculado — é o que permite navegar. */
@@ -108,6 +117,11 @@ export const idParamSchema = z.object({
   id: z.string().trim().min(1).max(64),
 });
 
+/** Alcance de um DELETE: só o registro (padrão) ou a compra parcelada inteira. */
+export const deleteQuerySchema = z.object({
+  scope: z.enum(['installments']).optional(),
+});
+
 /**
  * Apagar tudo é irreversível, então a intenção precisa ser explícita:
  * um `DELETE` acidental sem esse corpo não destrói nada.
@@ -118,7 +132,10 @@ export const resetBodySchema = z.object({
 
 /** Mensagens amigáveis por campo — o usuário nunca vê o texto cru do Zod. */
 const FIELD_MESSAGES: Record<string, string> = {
-  type: 'Escolha se a transação é uma entrada ou uma saída.',
+  type: 'Escolha se a transação é uma entrada, uma saída ou uma transferência.',
+  transferAccountId: 'Escolha a conta de destino da transferência.',
+  installments: `Escolha de 2 a ${MAX_INSTALLMENTS} parcelas.`,
+  amountIs: 'Diga se o valor informado é o total ou o de cada parcela.',
   amountCents: 'Informe um valor maior que zero.',
   description: `A descrição é obrigatória e deve ter até ${MAX_DESCRIPTION_LENGTH} caracteres.`,
   category: 'Escolha uma categoria válida.',

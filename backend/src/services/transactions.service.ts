@@ -1,12 +1,15 @@
 import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { addMonths } from '../domain/dates';
 import { NotFoundError, ValidationError } from '../errors';
-import type {
-  Paginated,
-  Transaction,
-  TransactionFilters,
-  TransactionInput,
-  TransactionType,
+import {
+  TRANSFER_CATEGORY,
+  type InstallmentInput,
+  type Paginated,
+  type Transaction,
+  type TransactionFilters,
+  type TransactionInput,
+  type TransactionType,
 } from '../domain/types';
 
 interface TransactionRow {
@@ -18,21 +21,32 @@ interface TransactionRow {
   date: string;
   account_id: string | null;
   account_name: string | null;
+  transfer_account_id: string | null;
+  transfer_account_name: string | null;
   recurrence_id: string | null;
+  installment_group: string | null;
+  installment_number: number | null;
+  installment_total: number | null;
   created_at: string;
   updated_at: string;
 }
 
 const MAX_PAGE_SIZE = 500;
 
+/** Teto de parcelas — quatro anos de carnê já é mais do que qualquer loja faz. */
+export const MAX_INSTALLMENTS = 48;
+
 /** Marcas de acentuação que o `normalize('NFD')` separa das letras. */
 const DIACRITICS = /[̀-ͯ]/g;
 
-/** Colunas + o nome da conta vinculada, resolvido por junção. */
+/** Colunas + os nomes das contas envolvidas, resolvidos por junção. */
 const SELECT_BASE = `
-  SELECT t.*, a.name AS account_name
+  SELECT t.*,
+         origem.name  AS account_name,
+         destino.name AS transfer_account_name
     FROM transactions t
-    LEFT JOIN accounts a ON a.id = t.account_id`;
+    LEFT JOIN accounts origem  ON origem.id  = t.account_id
+    LEFT JOIN accounts destino ON destino.id = t.transfer_account_id`;
 
 function toTransaction(row: TransactionRow): Transaction {
   return {
@@ -44,10 +58,26 @@ function toTransaction(row: TransactionRow): Transaction {
     date: row.date,
     accountId: row.account_id,
     accountName: row.account_name,
+    transferAccountId: row.transfer_account_id,
+    transferAccountName: row.transfer_account_name,
     recurrenceId: row.recurrence_id,
+    installmentGroup: row.installment_group,
+    installmentNumber: row.installment_number,
+    installmentTotal: row.installment_total,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
   };
+}
+
+/**
+ * Divide um total em parcelas iguais e devolve os centavos de cada uma.
+ * A sobra da divisão vai para a primeira — é como as lojas fazem, e evita que
+ * a soma das parcelas fique diferente do total da compra.
+ */
+export function splitInstallments(totalCents: number, count: number): number[] {
+  const base = Math.floor(totalCents / count);
+  const remainder = totalCents - base * count;
+  return Array.from({ length: count }, (_, index) => (index === 0 ? base + remainder : base));
 }
 
 /**
@@ -114,17 +144,19 @@ export function createTransactionsService(db: DatabaseSync) {
   const selectById = db.prepare(`${SELECT_BASE} WHERE t.id = ?`);
   const insert = db.prepare(
     `INSERT INTO transactions
-       (id, type, amount_cents, description, category, date, account_id, recurrence_id,
+       (id, type, amount_cents, description, category, date, account_id, transfer_account_id,
+        recurrence_id, installment_group, installment_number, installment_total,
         search_text, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
   );
   const updateStatement = db.prepare(
     `UPDATE transactions
         SET type = ?, amount_cents = ?, description = ?, category = ?, date = ?,
-            account_id = ?, search_text = ?, updated_at = ?
+            account_id = ?, transfer_account_id = ?, search_text = ?, updated_at = ?
       WHERE id = ?`,
   );
   const deleteStatement = db.prepare('DELETE FROM transactions WHERE id = ?');
+  const deleteGroupStatement = db.prepare('DELETE FROM transactions WHERE installment_group = ?');
   const accountExists = db.prepare('SELECT 1 AS found FROM accounts WHERE id = ?');
 
   /** Devolve o id validado, ou `null` quando a transação não tem conta. */
@@ -134,6 +166,33 @@ export function createTransactionsService(db: DatabaseSync) {
       throw new ValidationError('A conta escolhida não existe mais. Selecione outra.');
     }
     return accountId;
+  }
+
+  /**
+   * Uma transferência precisa de origem e destino, e eles têm de ser diferentes.
+   * Nos outros tipos o destino simplesmente não existe.
+   */
+  function resolveTransfer(input: TransactionInput): {
+    accountId: string | null;
+    transferAccountId: string | null;
+    category: string;
+  } {
+    const accountId = resolveAccountId(input.accountId);
+
+    if (input.type !== 'transfer') {
+      return { accountId, transferAccountId: null, category: input.category };
+    }
+
+    const transferAccountId = resolveAccountId(input.transferAccountId);
+    if (!accountId || !transferAccountId) {
+      throw new ValidationError('Escolha a conta de origem e a de destino da transferência.');
+    }
+    if (accountId === transferAccountId) {
+      throw new ValidationError('A conta de destino precisa ser diferente da de origem.');
+    }
+
+    // A categoria de uma transferência é sempre a mesma: ela não é um gasto.
+    return { accountId, transferAccountId, category: TRANSFER_CATEGORY };
   }
 
   function findById(id: string): Transaction | null {
@@ -169,36 +228,93 @@ export function createTransactionsService(db: DatabaseSync) {
     return { items: rows.map(toTransaction), total: countRow.total, limit, offset };
   }
 
-  function create(input: TransactionInput): Transaction {
+  interface InsertOptions {
+    installmentGroup?: string;
+    installmentNumber?: number;
+    installmentTotal?: number;
+  }
+
+  function insertRow(input: TransactionInput, options: InsertOptions = {}): string {
     const now = new Date().toISOString();
     const id = randomUUID();
+    const resolved = resolveTransfer(input);
+
     insert.run(
       id,
       input.type,
       input.amountCents,
       input.description,
-      input.category,
+      resolved.category,
       input.date,
-      resolveAccountId(input.accountId),
+      resolved.accountId,
+      resolved.transferAccountId,
       input.recurrenceId ?? null,
-      normalizeSearch(`${input.description} ${input.category}`),
+      options.installmentGroup ?? null,
+      options.installmentNumber ?? null,
+      options.installmentTotal ?? null,
+      normalizeSearch(`${input.description} ${resolved.category}`),
       now,
       now,
     );
-    return getById(id);
+    return id;
   }
 
-  /** `recurrence_id` fica de fora de propósito: editar não apaga a origem. */
+  function create(input: TransactionInput): Transaction {
+    return getById(insertRow(input));
+  }
+
+  /**
+   * Cria a compra parcelada inteira de uma vez: uma transação por mês, a partir
+   * da data informada. Ver todas as parcelas no histórico é o que torna o
+   * compromisso visível — cada uma continua editável e apagável sozinha.
+   */
+  function createInstallments(input: InstallmentInput): Transaction[] {
+    const count = input.installments;
+    const amounts =
+      input.amountIs === 'total'
+        ? splitInstallments(input.amountCents, count)
+        : Array.from({ length: count }, () => input.amountCents);
+
+    const group = randomUUID();
+    const ids: string[] = [];
+
+    db.exec('BEGIN');
+    try {
+      for (let index = 0; index < count; index += 1) {
+        ids.push(
+          insertRow(
+            {
+              ...input,
+              amountCents: amounts[index] as number,
+              date: addMonths(input.date, index),
+            },
+            { installmentGroup: group, installmentNumber: index + 1, installmentTotal: count },
+          ),
+        );
+      }
+      db.exec('COMMIT');
+    } catch (error) {
+      db.exec('ROLLBACK');
+      throw error;
+    }
+
+    return ids.map(getById);
+  }
+
+  /** `recurrence_id` e as parcelas ficam de fora: editar não apaga a origem. */
   function update(id: string, input: TransactionInput): Transaction {
     getById(id); // garante 404 antes de tentar escrever
+    const resolved = resolveTransfer(input);
+
     updateStatement.run(
       input.type,
       input.amountCents,
       input.description,
-      input.category,
+      resolved.category,
       input.date,
-      resolveAccountId(input.accountId),
-      normalizeSearch(`${input.description} ${input.category}`),
+      resolved.accountId,
+      resolved.transferAccountId,
+      normalizeSearch(`${input.description} ${resolved.category}`),
       new Date().toISOString(),
       id,
     );
@@ -210,6 +326,19 @@ export function createTransactionsService(db: DatabaseSync) {
     if (result.changes === 0) {
       throw new NotFoundError('Transação não encontrada.');
     }
+  }
+
+  /**
+   * Apaga a compra parcelada inteira — inclusive as parcelas já passadas.
+   * Devolve quantas sumiram. Numa transação sem grupo, apaga só ela.
+   */
+  function removeInstallmentGroup(id: string): number {
+    const transaction = getById(id);
+    if (!transaction.installmentGroup) {
+      remove(id);
+      return 1;
+    }
+    return Number(deleteGroupStatement.run(transaction.installmentGroup).changes);
   }
 
   /** Categorias já usadas pelo usuário, para alimentar os filtros da interface. */
@@ -248,8 +377,10 @@ export function createTransactionsService(db: DatabaseSync) {
     findById,
     getById,
     create,
+    createInstallments,
     update,
     remove,
+    removeInstallmentGroup,
     categoriesInUse,
     earliestDate,
     latestDate,

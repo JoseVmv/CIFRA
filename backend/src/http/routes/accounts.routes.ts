@@ -9,7 +9,12 @@ export function createAccountsRouter(services: Services): Router {
 
   router.get('/', (_req, res) => {
     const items = services.accounts.list();
-    res.json({ items, totalCents: services.accounts.totalBalanceCents() });
+    res.json({
+      items,
+      totalCents: services.accounts.totalBalanceCents(),
+      currentTotalCents: items.reduce((sum, account) => sum + account.currentBalanceCents, 0),
+      unlinkedNetCents: services.accounts.unlinkedNetCents(),
+    });
   });
 
   router.post('/', (req, res) => {

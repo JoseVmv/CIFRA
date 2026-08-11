@@ -98,6 +98,57 @@ const MIGRATIONS: readonly string[] = [
       ON transactions (recurrence_id, date)
    WHERE recurrence_id IS NOT NULL;
   `,
+
+  // 6. Transferências entre contas e compras parceladas.
+  //
+  //    O SQLite não altera um CHECK depois de criado, e o tipo precisa aceitar
+  //    'transfer' — daí a reconstrução da tabela. As colunas novas entram junto,
+  //    na mesma passada, para não pagar o custo duas vezes.
+  `
+  CREATE TABLE transactions_new (
+    id                  TEXT PRIMARY KEY,
+    type                TEXT    NOT NULL CHECK (type IN ('income', 'expense', 'transfer')),
+    amount_cents        INTEGER NOT NULL CHECK (amount_cents > 0),
+    description         TEXT    NOT NULL CHECK (length(description) BETWEEN 1 AND 140),
+    category            TEXT    NOT NULL CHECK (length(category) BETWEEN 1 AND 40),
+    date                TEXT    NOT NULL CHECK (date GLOB '[0-9][0-9][0-9][0-9]-[0-9][0-9]-[0-9][0-9]'),
+    search_text         TEXT    NOT NULL,
+    created_at          TEXT    NOT NULL,
+    updated_at          TEXT    NOT NULL,
+    account_id          TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+    recurrence_id       TEXT REFERENCES recurrences(id) ON DELETE SET NULL,
+    -- Conta de destino: só as transferências preenchem.
+    transfer_account_id TEXT REFERENCES accounts(id) ON DELETE SET NULL,
+    -- Parcelas de uma mesma compra compartilham o grupo e se numeram nele.
+    installment_group   TEXT,
+    installment_number  INTEGER CHECK (installment_number IS NULL OR installment_number > 0),
+    installment_total   INTEGER CHECK (installment_total  IS NULL OR installment_total  > 1),
+    -- Dinheiro não se transfere para o lugar onde já está.
+    CHECK (transfer_account_id IS NULL OR transfer_account_id <> account_id)
+  );
+
+  INSERT INTO transactions_new
+    (id, type, amount_cents, description, category, date, search_text,
+     created_at, updated_at, account_id, recurrence_id)
+  SELECT
+     id, type, amount_cents, description, category, date, search_text,
+     created_at, updated_at, account_id, recurrence_id
+    FROM transactions;
+
+  DROP TABLE transactions;
+  ALTER TABLE transactions_new RENAME TO transactions;
+
+  CREATE INDEX idx_transactions_date ON transactions (date DESC);
+  CREATE INDEX idx_transactions_type_date ON transactions (type, date);
+  CREATE INDEX idx_transactions_category ON transactions (category);
+  CREATE INDEX idx_transactions_account ON transactions (account_id);
+  CREATE INDEX idx_transactions_transfer ON transactions (transfer_account_id);
+  CREATE INDEX idx_transactions_installment ON transactions (installment_group);
+
+  CREATE UNIQUE INDEX idx_transactions_recurrence_date
+      ON transactions (recurrence_id, date)
+   WHERE recurrence_id IS NOT NULL;
+  `,
 ];
 
 export function runMigrations(db: DatabaseSync): void {

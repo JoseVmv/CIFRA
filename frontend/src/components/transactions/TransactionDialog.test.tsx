@@ -15,6 +15,7 @@ vi.mock('../../lib/api', async () => {
       getSettings: vi.fn(),
       getCategories: vi.fn(),
       createTransaction: vi.fn(),
+      createInstallments: vi.fn(),
       updateTransaction: vi.fn(),
       deleteTransaction: vi.fn(),
       listTransactions: vi.fn(),
@@ -59,7 +60,12 @@ beforeEach(() => {
     income: ['Salário', 'Freelance'],
     expense: ['Alimentação', 'Transporte'],
   });
-  mockedApi.listAccounts.mockResolvedValue({ items: [], totalCents: 0 });
+  mockedApi.listAccounts.mockResolvedValue({
+    items: [],
+    totalCents: 0,
+    currentTotalCents: 0,
+    unlinkedNetCents: 0,
+  });
 });
 
 /** Liga o modo de múltiplas contas com as contas informadas. */
@@ -78,11 +84,14 @@ function withAccounts(names: string[]): void {
       id: `conta-${index}`,
       name,
       balanceCents: 0,
+      currentBalanceCents: 0,
       position: index,
       createdAt: '2026-08-01T12:00:00.000Z',
       updatedAt: '2026-08-01T12:00:00.000Z',
     })),
     totalCents: 0,
+    currentTotalCents: 0,
+    unlinkedNetCents: 0,
   });
 }
 
@@ -123,7 +132,12 @@ describe('diálogo de transação', () => {
       date: '2026-08-09',
       accountId: null,
       accountName: null,
+      transferAccountId: null,
+      transferAccountName: null,
       recurrenceId: null,
+      installmentGroup: null,
+      installmentNumber: null,
+      installmentTotal: null,
       createdAt: '2026-08-09T12:00:00.000Z',
       updatedAt: '2026-08-09T12:00:00.000Z',
     });
@@ -195,7 +209,12 @@ describe('diálogo de transação', () => {
       date: '2026-08-09',
       accountId: 'conta-0',
       accountName: 'Nubank',
+      transferAccountId: null,
+      transferAccountName: null,
       recurrenceId: null,
+      installmentGroup: null,
+      installmentNumber: null,
+      installmentTotal: null,
       createdAt: '2026-08-09T12:00:00.000Z',
       updatedAt: '2026-08-09T12:00:00.000Z',
     });
@@ -249,7 +268,12 @@ describe('diálogo de transação', () => {
           date: '2026-08-05',
           accountId: null,
           accountName: null,
+          transferAccountId: null,
+          transferAccountName: null,
           recurrenceId: null,
+          installmentGroup: null,
+          installmentNumber: null,
+          installmentTotal: null,
           createdAt: '2026-08-05T12:00:00.000Z',
           updatedAt: '2026-08-05T12:00:00.000Z',
         }}
@@ -260,5 +284,133 @@ describe('diálogo de transação', () => {
     expect(valueOf('Descrição')).toBe('Salário de agosto');
     expect(valueOf('Data')).toBe('2026-08-05');
     expect(screen.getByRole('button', { name: 'Salvar alterações' })).toBeTruthy();
+  });
+});
+
+describe('transferência entre contas', () => {
+  it('só é oferecida quando existem duas contas', async () => {
+    withAccounts(['Nubank']);
+    const { unmount } = renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    await screen.findByLabelText('Conta');
+    expect(screen.queryByRole('radio', { name: 'Transferência' })).toBeNull();
+    unmount();
+
+    withAccounts(['Nubank', 'Itaú']);
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    expect(await screen.findByRole('radio', { name: 'Transferência' })).toBeTruthy();
+  });
+
+  it('troca categoria por origem e destino, e envia a categoria fixa', async () => {
+    const user = userEvent.setup();
+    withAccounts(['Nubank', 'Itaú']);
+    mockedApi.createTransaction.mockResolvedValue({} as never);
+
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    await user.click(await screen.findByRole('radio', { name: 'Transferência' }));
+
+    // Transferência não tem categoria: quem manda são as contas.
+    expect(screen.queryByLabelText('Categoria')).toBeNull();
+    await user.type(screen.getByLabelText('Valor'), '50000');
+    await user.type(screen.getByLabelText('Descrição'), 'Reserva');
+
+    // Sem destino, o envio para de pé.
+    await user.click(screen.getByRole('button', { name: 'Adicionar' }));
+    expect(await screen.findByText('Escolha a conta de origem.')).toBeTruthy();
+    expect(mockedApi.createTransaction).not.toHaveBeenCalled();
+
+    await user.selectOptions(screen.getByLabelText('De'), 'Nubank');
+    await user.selectOptions(screen.getByLabelText('Para'), 'Itaú');
+    await user.click(screen.getByRole('button', { name: 'Adicionar' }));
+
+    await waitFor(() =>
+      expect(mockedApi.createTransaction).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'transfer',
+          amountCents: 50_000,
+          category: 'Transferência',
+          accountId: 'conta-0',
+          transferAccountId: 'conta-1',
+        }),
+      ),
+    );
+  });
+
+  it('não oferece a origem como destino', async () => {
+    const user = userEvent.setup();
+    withAccounts(['Nubank', 'Itaú']);
+
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    await user.click(await screen.findByRole('radio', { name: 'Transferência' }));
+    await user.selectOptions(screen.getByLabelText('De'), 'Nubank');
+
+    const destinos = [...screen.getByLabelText('Para').querySelectorAll('option')].map(
+      (option) => option.textContent,
+    );
+    expect(destinos).not.toContain('Nubank');
+    expect(destinos).toContain('Itaú');
+  });
+});
+
+describe('compra parcelada', () => {
+  it('mostra como as parcelas ficam e cria todas de uma vez', async () => {
+    const user = userEvent.setup();
+    mockedApi.createInstallments.mockResolvedValue({ items: new Array(3).fill({}) } as never);
+
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    await user.type(screen.getByLabelText('Valor'), '100000');
+    await user.type(screen.getByLabelText('Descrição'), 'Câmera');
+    await user.selectOptions(await screen.findByLabelText('Categoria'), 'Transporte');
+    await user.click(screen.getByLabelText('Compra parcelada'));
+    await user.selectOptions(screen.getByLabelText('Parcelas'), '3');
+
+    // A sobra da divisão aparece na prévia, igual ao que o servidor vai gravar.
+    expect(screen.getByText(/333,33/)).toBeTruthy();
+    expect(screen.getByText(/333,34/)).toBeTruthy();
+
+    await user.click(screen.getByRole('button', { name: 'Adicionar' }));
+
+    await waitFor(() =>
+      expect(mockedApi.createInstallments).toHaveBeenCalledWith(
+        expect.objectContaining({
+          amountCents: 100_000,
+          installments: 3,
+          amountIs: 'total',
+          description: 'Câmera',
+        }),
+      ),
+    );
+    expect(mockedApi.createTransaction).not.toHaveBeenCalled();
+  });
+
+  it('não parcela entrada nem transferência', async () => {
+    const user = userEvent.setup();
+    withAccounts(['Nubank', 'Itaú']);
+
+    renderDialog(
+      <TransactionDialog open onClose={() => {}} transaction={null} defaultType="expense" />,
+    );
+
+    expect(await screen.findByLabelText('Compra parcelada')).toBeTruthy();
+
+    await user.click(screen.getByRole('radio', { name: 'Entrada' }));
+    expect(screen.queryByLabelText('Compra parcelada')).toBeNull();
+
+    await user.click(screen.getByRole('radio', { name: 'Transferência' }));
+    expect(screen.queryByLabelText('Compra parcelada')).toBeNull();
   });
 });

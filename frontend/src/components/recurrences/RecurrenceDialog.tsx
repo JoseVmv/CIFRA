@@ -9,11 +9,11 @@ import { useToast } from '../../context/ToastContext';
 import { api, ApiError } from '../../lib/api';
 import { todayIso } from '../../lib/format';
 import { FREQUENCY_OPTIONS, MONTHS, WEEKDAYS } from '../../lib/recurrence';
-import type { Recurrence, RecurrenceFrequency, TransactionType } from '../../types/api';
+import type { CashflowType, Recurrence, RecurrenceFrequency } from '../../types/api';
 
 const MAX_DESCRIPTION = 140;
 
-const TYPE_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
+const TYPE_OPTIONS: ReadonlyArray<{ value: CashflowType; label: string }> = [
   { value: 'income', label: 'Entrada' },
   { value: 'expense', label: 'Saída' },
 ];
@@ -21,7 +21,7 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
 const DAYS_OF_MONTH = Array.from({ length: 31 }, (_, index) => index + 1);
 
 interface FormState {
-  type: TransactionType;
+  type: CashflowType;
   amountCents: number;
   description: string;
   category: string;

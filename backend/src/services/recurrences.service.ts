@@ -4,17 +4,17 @@ import { today, weekdayOf } from '../domain/dates';
 import { nextOccurrence, occurrencesBetween, pendingFrom } from '../domain/recurrence';
 import { AppError, NotFoundError, ValidationError } from '../errors';
 import type {
+  CashflowType,
   Recurrence,
   RecurrenceFrequency,
   RecurrenceInput,
   RecurrenceView,
-  TransactionType,
 } from '../domain/types';
 import type { TransactionsService } from './transactions.service';
 
 interface RecurrenceRow {
   id: string;
-  type: TransactionType;
+  type: CashflowType;
   amount_cents: number;
   description: string;
   category: string;

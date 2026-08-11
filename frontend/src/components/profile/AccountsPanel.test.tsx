@@ -37,6 +37,8 @@ function account(name: string, balanceCents: number, position: number): Account 
     id: `id-${position}`,
     name,
     balanceCents,
+    // Sem movimento na conta, o saldo de hoje é o inicial.
+    currentBalanceCents: balanceCents,
     position,
     createdAt: '2026-08-01T12:00:00.000Z',
     updatedAt: '2026-08-01T12:00:00.000Z',
@@ -70,6 +72,8 @@ beforeEach(() => {
   mockedApi.listAccounts.mockResolvedValue({
     items: [NUBANK, ITAU],
     totalCents: 1_050_000,
+    currentTotalCents: 1_050_000,
+    unlinkedNetCents: 0,
   });
 });
 
@@ -87,7 +91,12 @@ describe('painel de contas', () => {
   });
 
   it('explica o estado vazio quando ainda não há contas', async () => {
-    mockedApi.listAccounts.mockResolvedValue({ items: [], totalCents: 0 });
+    mockedApi.listAccounts.mockResolvedValue({
+      items: [],
+      totalCents: 0,
+      currentTotalCents: 0,
+      unlinkedNetCents: 0,
+    });
     renderPanel();
 
     expect(await screen.findByText(/Nenhuma conta ainda/)).toBeTruthy();

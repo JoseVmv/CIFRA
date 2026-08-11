@@ -45,7 +45,12 @@ beforeEach(() => {
     income: ['Salário', 'Freelance'],
     expense: ['Alimentação', 'Moradia'],
   });
-  mockedApi.listAccounts.mockResolvedValue({ items: [], totalCents: 0 });
+  mockedApi.listAccounts.mockResolvedValue({
+    items: [],
+    totalCents: 0,
+    currentTotalCents: 0,
+    unlinkedNetCents: 0,
+  });
 });
 
 describe('diálogo de recorrência', () => {

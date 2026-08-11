@@ -1,6 +1,16 @@
 /** Espelho dos tipos que a API devolve. Valores monetários sempre em centavos. */
 
-export type TransactionType = 'income' | 'expense';
+/**
+ * `transfer` move dinheiro entre contas suas: não é receita nem despesa e fica
+ * fora de todo total, comparativo e limite de gasto.
+ */
+export type TransactionType = 'income' | 'expense' | 'transfer';
+
+/** Os tipos que representam dinheiro entrando ou saindo do seu bolso. */
+export type CashflowType = 'income' | 'expense';
+
+/** Categoria fixa das transferências — a interface não deixa escolher outra. */
+export const TRANSFER_CATEGORY = 'Transferência';
 
 export interface Transaction {
   id: string;
@@ -11,8 +21,15 @@ export interface Transaction {
   date: string;
   accountId: string | null;
   accountName: string | null;
+  /** Conta de destino de uma transferência. `null` nos demais tipos. */
+  transferAccountId: string | null;
+  transferAccountName: string | null;
   /** Recorrência que gerou o lançamento; `null` quando foi digitado à mão. */
   recurrenceId: string | null;
+  /** Compra parcelada: o grupo e a posição desta parcela nele. */
+  installmentGroup: string | null;
+  installmentNumber: number | null;
+  installmentTotal: number | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -24,6 +41,14 @@ export interface TransactionInput {
   category: string;
   date: string;
   accountId?: string | null;
+  transferAccountId?: string | null;
+}
+
+/** Uma compra dividida em parcelas mensais. */
+export interface InstallmentInput extends TransactionInput {
+  installments: number;
+  /** O valor informado é o preço da compra ou o de cada parcela? */
+  amountIs: 'total' | 'installment';
 }
 
 export interface Paginated<T> {
@@ -33,14 +58,27 @@ export interface Paginated<T> {
   offset: number;
 }
 
-/** Agrupamento nomeado com saldo — por enquanto serve só para compor o saldo inicial. */
+/** Um agrupamento nomeado de dinheiro: um banco, uma carteira, um cofrinho. */
 export interface Account {
   id: string;
   name: string;
+  /** Quanto havia na conta antes do histórico — é o que o usuário digita. */
   balanceCents: number;
+  /** Saldo de hoje, derivado das transações da conta. Nunca digitado. */
+  currentBalanceCents: number;
   position: number;
   createdAt: string;
   updatedAt: string;
+}
+
+export interface AccountsResponse {
+  items: Account[];
+  /** Soma dos saldos iniciais — é o saldo inicial do app no modo múltiplas contas. */
+  totalCents: number;
+  /** Soma dos saldos de hoje. */
+  currentTotalCents: number;
+  /** Resultado das transações que não estão em conta nenhuma. */
+  unlinkedNetCents: number;
 }
 
 export interface AccountInput {
@@ -164,7 +202,8 @@ export type RecurrenceFrequency = 'weekly' | 'monthly' | 'yearly';
 /** Molde de uma transação que se repete sozinha quando a data chega. */
 export interface Recurrence {
   id: string;
-  type: TransactionType;
+  /** Transferência não se repete por regra — só entrada e saída. */
+  type: CashflowType;
   amountCents: number;
   description: string;
   category: string;
@@ -188,7 +227,7 @@ export interface Recurrence {
 }
 
 export interface RecurrenceInput {
-  type: TransactionType;
+  type: CashflowType;
   amountCents: number;
   description: string;
   category: string;

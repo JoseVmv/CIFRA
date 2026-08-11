@@ -29,6 +29,7 @@ const TYPE_OPTIONS: ReadonlyArray<{ value: TypeChoice; label: string }> = [
   { value: '', label: 'Tudo' },
   { value: 'income', label: 'Entradas' },
   { value: 'expense', label: 'Saídas' },
+  { value: 'transfer', label: 'Transferências' },
 ];
 
 interface FormState {
@@ -103,6 +104,8 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
 
   const categoryOptions = useMemo(() => {
     if (!categories) return [];
+    // Transferência tem categoria própria e fixa: não há o que escolher.
+    if (state.type === 'transfer') return [];
     if (state.type) return categories[state.type];
     return [...new Set([...categories.income, ...categories.expense])].sort((a, b) =>
       a.localeCompare(b, 'pt-BR'),

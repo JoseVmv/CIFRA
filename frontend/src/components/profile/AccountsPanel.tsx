@@ -41,6 +41,7 @@ export function AccountsPanel() {
 
   const items = accounts ?? [];
   const totalCents = items.reduce((sum, item) => sum + item.balanceCents, 0);
+  const currentTotalCents = items.reduce((sum, item) => sum + item.currentBalanceCents, 0);
 
   async function addAccount(): Promise<void> {
     const name = draftName.trim();
@@ -140,12 +141,20 @@ export function AccountsPanel() {
           {creating ? 'Salvar conta' : 'Adicionar conta'}
         </Button>
 
-        <p className="flex items-baseline gap-2 text-[13px] text-ink-3">
-          Saldo inicial
-          <strong className="tnum text-base font-semibold text-ink">
-            {formatCurrency(totalCents)}
-          </strong>
-        </p>
+        <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[13px] text-ink-3">
+          <p className="flex items-baseline gap-2">
+            Saldo inicial
+            <strong className="tnum font-semibold text-ink-2">{formatCurrency(totalCents)}</strong>
+          </p>
+          {items.length > 0 && (
+            <p className="flex items-baseline gap-2">
+              Hoje
+              <strong className="tnum text-base font-semibold text-ink">
+                {formatCurrency(currentTotalCents)}
+              </strong>
+            </p>
+          )}
+        </div>
       </div>
     </div>
   );
@@ -194,35 +203,49 @@ function AccountRow({ account }: { account: Account }) {
     }
   }
 
+  // Sem movimento na conta os dois números são iguais: repetir só faria ruído.
+  const moved = account.currentBalanceCents !== account.balanceCents;
+
   return (
-    <li className={cn('flex items-center gap-2', busy && 'opacity-60')}>
-      <input
-        value={name}
-        maxLength={MAX_NAME_LENGTH}
-        aria-label={`Nome da conta ${account.name}`}
-        autoComplete="off"
-        onChange={(event) => setName(event.target.value)}
-        onBlur={() => void save()}
-        onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
-        className={NAME_INPUT_CLASS}
-      />
-      <div className="w-36 shrink-0">
-        <CurrencyInput
-          valueCents={balanceCents}
-          onChangeCents={setBalanceCents}
-          aria-label={`Saldo da conta ${account.name}`}
+    <li className={cn('flex flex-col gap-1', busy && 'opacity-60')}>
+      <div className="flex items-center gap-2">
+        <input
+          value={name}
+          maxLength={MAX_NAME_LENGTH}
+          aria-label={`Nome da conta ${account.name}`}
+          autoComplete="off"
+          onChange={(event) => setName(event.target.value)}
           onBlur={() => void save()}
           onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
+          className={NAME_INPUT_CLASS}
         />
+        <div className="w-36 shrink-0">
+          <CurrencyInput
+            valueCents={balanceCents}
+            onChangeCents={setBalanceCents}
+            aria-label={`Saldo inicial da conta ${account.name}`}
+            onBlur={() => void save()}
+            onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
+          />
+        </div>
+        <IconButton
+          label={`Remover conta ${account.name}`}
+          disabled={busy}
+          className="shrink-0 hover:bg-expense-soft hover:text-expense-text"
+          onClick={() => void remove()}
+        >
+          <IconTrash />
+        </IconButton>
       </div>
-      <IconButton
-        label={`Remover conta ${account.name}`}
-        disabled={busy}
-        className="shrink-0 hover:bg-expense-soft hover:text-expense-text"
-        onClick={() => void remove()}
-      >
-        <IconTrash />
-      </IconButton>
+
+      {moved && (
+        <p className="pr-[3.25rem] text-right text-xs text-ink-3">
+          Saldo hoje{' '}
+          <strong className="tnum font-semibold text-ink-2">
+            {formatCurrency(account.currentBalanceCents)}
+          </strong>
+        </p>
+      )}
     </li>
   );
 }

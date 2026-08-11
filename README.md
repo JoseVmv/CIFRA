@@ -10,6 +10,8 @@ Saldo atual = saldo inicial + total de entradas − total de saídas
 ```
 
 O saldo nunca é um número digitado à mão — ele é sempre derivado do histórico.
+Transferências entre suas contas não aparecem nessa conta: elas não criam nem
+destroem dinheiro, só o mudam de lugar.
 O saldo inicial, por sua vez, vem do campo em **Usuário** ou, se você ativar
 múltiplas contas, da soma das contas cadastradas.
 
@@ -21,8 +23,14 @@ múltiplas contas, da soma das contas cadastradas.
 - **Seletor de período por mês de calendário**: este mês, últimos 3 meses,
   últimos 6 meses, este ano ou tudo, com **setas para navegar** entre meses
   passados. Cards e gráficos respondem juntos.
-- **Nova transação** em um diálogo rápido (entrada ou saída, valor, descrição,
-  categoria e data), com confirmação visual e sem recarregar a página.
+- **Nova transação** em um diálogo rápido (entrada, saída ou transferência),
+  com confirmação visual e sem recarregar a página.
+- **Transferência entre contas**: mover dinheiro do banco para a poupança não é
+  receita nem despesa. Ela fica fora de todo total, comparativo e limite de
+  gasto — só muda o saldo de cada conta.
+- **Compras parceladas**: "câmera em 10x" vira dez lançamentos mensais
+  numerados, que aparecem cada um no seu mês. Dá para apagar só uma parcela ou
+  a compra inteira.
 - **Histórico** agrupado por dia, com busca por descrição (ignora acentos e
   maiúsculas), filtros de tipo, categoria e período, além de edição e exclusão.
 - **Exportar** o que está na tela em CSV (para Excel ou padrão), JSON ou um
@@ -42,7 +50,8 @@ múltiplas contas, da soma das contas cadastradas.
   alterável a qualquer momento sem tocar no histórico.
 - **Múltiplas contas** (opcional): cadastre seus bancos e carteiras e o saldo
   inicial passa a ser a soma deles. Com a opção ligada, cada transação é
-  vinculada a uma conta, e o histórico pode ser filtrado por ela.
+  vinculada a uma conta, o histórico pode ser filtrado por ela e cada conta
+  mostra o **saldo de hoje**, derivado do que passou por ali.
 - **Resetar tudo** direto pela interface, em Ajustes, com confirmação por digitação.
 - **Tema claro e escuro**, responsivo de celular a desktop.
 
@@ -191,19 +200,21 @@ arquivos `-wal`/`-shm` do SQLite). **Para fazer backup, basta copiar essa pasta.
 O schema tem cinco tabelas:
 
 ```text
-transactions                    accounts               budgets
-├── id (uuid)                   ├── id (uuid)          ├── id (uuid)
-├── type (income | expense)     ├── name               ├── category (única)
-├── amount_cents (inteiro > 0)  ├── balance_cents      ├── limit_cents
-├── description                 ├── position           ├── months (1–24)
-├── category                    ├── created_at         ├── created_at
-├── date (YYYY-MM-DD)           └── updated_at         └── updated_at
-├── account_id    → conta vinculada (nulo se não usa contas)
-├── recurrence_id → regra que gerou o lançamento (nulo se foi digitado)
-├── search_text   → texto normalizado (busca sem acento)    settings
-├── created_at                                              ├── key
-└── updated_at                                              ├── value
-                                                            └── updated_at
+transactions                         accounts               budgets
+├── id (uuid)                        ├── id (uuid)          ├── id (uuid)
+├── type (income|expense|transfer)   ├── name               ├── category (única)
+├── amount_cents (inteiro > 0)       ├── balance_cents      ├── limit_cents
+├── description                      ├── position           ├── months (1–24)
+├── category                         ├── created_at         ├── created_at
+├── date (YYYY-MM-DD)                └── updated_at         └── updated_at
+├── account_id          → conta vinculada (origem, nas transferências)
+├── transfer_account_id → conta de destino (só nas transferências)
+├── recurrence_id       → regra que gerou o lançamento
+├── installment_group   → parcelas da mesma compra
+├── installment_number / installment_total → "3 de 10"      settings
+├── search_text → texto normalizado (busca sem acento)      ├── key
+├── created_at                                              ├── value
+└── updated_at                                              └── updated_at
 recurrences
 ├── id (uuid)                   ├── start_date / end_date (fim opcional)
 ├── type, amount_cents          ├── active (pausada ou não)
@@ -235,6 +246,52 @@ Há duas formas, e elas fazem coisas ligeiramente diferentes:
 | `npm run db:reset` (terminal) | Apaga o arquivo do banco inteiro e recria o schema vazio |
 
 Qualquer uma das duas remove também os dados de demonstração.
+
+---
+
+## Transferências e compras parceladas
+
+### Transferir entre contas
+
+Com duas ou mais contas cadastradas, o diálogo de nova transação ganha um
+terceiro tipo: **Transferência**. Em vez de categoria, ele pede origem e destino.
+
+A regra que vale a pena guardar: **transferência não é receita nem despesa**. Ela
+não entra em entradas, saídas, resultado, comparativo, distribuição por categoria
+nem limites de gasto — e o saldo total do app não se mexe. O que muda é só o
+saldo de cada conta: sai de uma, chega na outra.
+
+É por isso que ela também é tratada à parte na exportação: nos CSV a coluna
+`Valor` fica **vazia** nas transferências e o montante vai para a coluna
+`Transferido`. Assim a promessa da coluna se mantém — somá-la dá o resultado do
+período, sem contar duas vezes um dinheiro que só mudou de lugar.
+
+### Saldo de hoje por conta
+
+Cada conta mostra dois números em **Usuário**: o **saldo inicial** (o que você
+digita) e o **saldo de hoje**, que o app deriva de tudo que passou por ali —
+entradas, saídas e transferências nos dois sentidos. O segundo nunca é digitado.
+
+Transações antigas, de antes de você ligar o modo de múltiplas contas, não
+pertencem a conta nenhuma. É por isso que a soma das contas pode diferir do saldo
+do app: a API devolve esse resto em `unlinkedNetCents`.
+
+### Parcelar uma compra
+
+Marque **Compra parcelada** numa saída nova, escolha em quantas vezes e diga se o
+valor digitado é o total da compra ou o de cada parcela. O app cria todas as
+parcelas de uma vez, uma por mês a partir da data escolhida, numeradas ("3/10").
+
+Duas decisões:
+
+- **Todas as parcelas nascem juntas**, em vez de aparecerem uma por mês. O
+  compromisso inteiro fica visível no histórico e nos meses seguintes — que é o
+  ponto de registrar um parcelamento.
+- **A sobra da divisão vai para a primeira parcela.** R$ 100,00 em 3x vira
+  33,34 + 33,33 + 33,33, então a soma das parcelas é exatamente o preço da compra.
+
+Cada parcela é uma transação normal: dá para editar ou apagar uma sozinha. Ao
+excluir, o diálogo oferece apagar **a compra inteira**, se você desistiu dela.
 
 ---
 
@@ -346,9 +403,10 @@ Base: `/api`
 | `GET` | `/health` | Verificação de saúde |
 | `GET` | `/transactions` | Lista com filtros `search`, `type`, `category`, `accountId`, `period`, `reference`, `from`, `to`, `limit`, `offset` |
 | `GET` | `/transactions/:id` | Uma transação |
-| `POST` | `/transactions` | Cria |
+| `POST` | `/transactions` | Cria. Com `type: "transfer"`, exige `accountId` e `transferAccountId` diferentes entre si |
+| `POST` | `/transactions/installments` | Cria uma compra parcelada inteira (`installments`, `amountIs`) |
 | `PUT` | `/transactions/:id` | Atualiza |
-| `DELETE` | `/transactions/:id` | Exclui |
+| `DELETE` | `/transactions/:id` | Exclui. Com `?scope=installments`, apaga a compra parcelada inteira |
 | `GET` | `/summary?period=month` | Saldo atual, entradas, saídas, resultado e saldo de abertura |
 | `GET` | `/statistics?period=month` | Série temporal, distribuição por categoria e comparativo com o período anterior |
 | `GET` `POST` | `/budgets` | Limites de gasto, já com o consumo calculado |
@@ -444,7 +502,7 @@ descartável, sem mocks.
 npm test
 ```
 
-**Backend (125 testes)** — a lógica financeira é o foco:
+**Backend (141 testes)** — a lógica financeira é o foco:
 
 - saldo inicial + entradas − saídas, incluindo alteração do saldo inicial sem
   perder histórico;
@@ -454,7 +512,14 @@ npm test
 - mês corrente: totais, saldo de abertura, série diária sem buracos e saldo
   acumulado; granularidade diária até 92 dias e mensal acima disso;
 - múltiplas contas: soma como saldo inicial, preservação do valor digitado ao
-  alternar a opção e reflexo imediato de inclusões e remoções;
+  alternar a opção, reflexo imediato de inclusões e remoções, saldo de hoje por
+  conta e resultado do que não está vinculado a nenhuma;
+- transferências: movem saldo entre contas sem mexer em entradas, saídas,
+  resultado, categorias, limites nem no saldo total; recusa de destino igual à
+  origem ou ausente; e o lançamento sobrevive à exclusão da conta;
+- compras parceladas: divisão do total com a sobra na primeira parcela, valor
+  informado por parcela, numeração, uma parcela por mês, e exclusão de uma só
+  ou da compra inteira;
 - transações vinculadas a contas: nome resolvido por junção, filtro por conta,
   recusa de conta inexistente e preservação do lançamento ao apagar a conta;
 - navegação entre períodos: janela em torno da referência, período anterior de
@@ -476,10 +541,12 @@ npm test
 - API completa por HTTP: códigos de status, mensagens amigáveis, JSON inválido,
   rota inexistente e ausência de stack trace nas respostas.
 
-**Frontend (48 testes)** — formatação monetária, aritmética de meses e rótulos de
+**Frontend (56 testes)** — formatação monetária, aritmética de meses e rótulos de
 janela, o fluxo do diálogo de transação (digitação convertida em centavos,
 bloqueio com mensagens de erro, seleção de conta obrigatória quando o modo está
-ligado, erro do servidor e edição pré-preenchida), o diálogo de recorrência
+ligado, erro do servidor e edição pré-preenchida), transferência (só aparece com
+duas contas, troca categoria por origem/destino e não oferece a origem como
+destino), parcelamento (prévia da divisão e criação em lote), o diálogo de recorrência
 (calendário que muda com a frequência, data final anterior ao início e envio em
 centavos), a geração dos arquivos de exportação (dialetos de CSV, escape de
 separador e aspas, sinal do valor, linha de totais, JSON com resumo e nome do

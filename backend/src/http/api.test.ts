@@ -338,6 +338,112 @@ describe('API', () => {
     expect((await api('/api/budgets')).body.items).toHaveLength(0);
   });
 
+  it('transfere entre contas sem mexer em entradas e saídas', async () => {
+    const origem = await api('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Corrente', balanceCents: 200_000 }),
+    });
+    const destino = await api('/api/accounts', {
+      method: 'POST',
+      body: JSON.stringify({ name: 'Poupança', balanceCents: 0 }),
+    });
+
+    const antes = (await api('/api/summary?period=all')).body;
+
+    const transferencia = await api('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'transfer',
+        amountCents: 50_000,
+        description: 'Reserva do mês',
+        category: 'qualquer',
+        date: TODAY,
+        accountId: origem.body.id,
+        transferAccountId: destino.body.id,
+      }),
+    });
+    expect(transferencia.status).toBe(201);
+    expect(transferencia.body.category).toBe('Transferência');
+    expect(transferencia.body.transferAccountName).toBe('Poupança');
+
+    const depois = (await api('/api/summary?period=all')).body;
+    expect(depois.incomeCents).toBe(antes.incomeCents);
+    expect(depois.expenseCents).toBe(antes.expenseCents);
+    expect(depois.currentBalanceCents).toBe(antes.currentBalanceCents);
+
+    const contas = (await api('/api/accounts')).body;
+    const saldos = Object.fromEntries(
+      contas.items.map((conta: { name: string; currentBalanceCents: number }) => [
+        conta.name,
+        conta.currentBalanceCents,
+      ]),
+    );
+    expect(saldos['Corrente']).toBe(150_000);
+    expect(saldos['Poupança']).toBe(50_000);
+
+    const mesmaConta = await api('/api/transactions', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'transfer',
+        amountCents: 1_000,
+        description: 'x',
+        category: 'x',
+        date: TODAY,
+        accountId: origem.body.id,
+        transferAccountId: origem.body.id,
+      }),
+    });
+    expect(mesmaConta.status).toBe(422);
+
+    await api(`/api/transactions/${transferencia.body.id}`, { method: 'DELETE' });
+    await api(`/api/accounts/${origem.body.id}`, { method: 'DELETE' });
+    await api(`/api/accounts/${destino.body.id}`, { method: 'DELETE' });
+  });
+
+  it('cria e apaga uma compra parcelada inteira', async () => {
+    const criada = await api('/api/transactions/installments', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'expense',
+        amountCents: 100_000,
+        description: 'Notebook',
+        category: 'Compras',
+        date: '2026-08-10',
+        installments: 4,
+        amountIs: 'total',
+      }),
+    });
+
+    expect(criada.status).toBe(201);
+    expect(criada.body.items).toHaveLength(4);
+    expect(criada.body.items.map((item: { amountCents: number }) => item.amountCents)).toEqual([
+      25_000, 25_000, 25_000, 25_000,
+    ]);
+    expect(criada.body.items[2].installmentNumber).toBe(3);
+    expect(criada.body.items[2].date).toBe('2026-10-10');
+
+    const poucas = await api('/api/transactions/installments', {
+      method: 'POST',
+      body: JSON.stringify({
+        type: 'expense',
+        amountCents: 100_000,
+        description: 'Notebook',
+        category: 'Compras',
+        date: '2026-08-10',
+        installments: 1,
+        amountIs: 'total',
+      }),
+    });
+    expect(poucas.status).toBe(422);
+    expect(poucas.body.error.message).toMatch(/parcelas/i);
+
+    const apagadas = await api(`/api/transactions/${criada.body.items[0].id}?scope=installments`, {
+      method: 'DELETE',
+    });
+    expect(apagadas.status).toBe(200);
+    expect(apagadas.body.deleted).toBe(4);
+  });
+
   it('percorre o ciclo completo de uma recorrência', async () => {
     // Data futura de propósito: aqui o foco é o contrato da API, não o
     // lançamento automático (coberto nos testes de serviço).

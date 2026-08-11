@@ -53,6 +53,8 @@ export interface ExportSummary {
   count: number;
   incomeCents: number;
   expenseCents: number;
+  /** Quanto andou entre contas — fora do resultado, de propósito. */
+  transferCents: number;
   netCents: number;
 }
 
@@ -63,19 +65,26 @@ export interface ExportOptions {
   includeTotals: boolean;
 }
 
+/**
+ * Totais do recorte. Transferências ficam de fora das somas — elas não são
+ * receita nem despesa — mas continuam contadas como linhas do extrato.
+ */
 export function summarize(transactions: Transaction[]): ExportSummary {
   let incomeCents = 0;
   let expenseCents = 0;
+  let transferCents = 0;
 
   for (const transaction of transactions) {
     if (transaction.type === 'income') incomeCents += transaction.amountCents;
-    else expenseCents += transaction.amountCents;
+    else if (transaction.type === 'expense') expenseCents += transaction.amountCents;
+    else transferCents += transaction.amountCents;
   }
 
   return {
     count: transactions.length,
     incomeCents,
     expenseCents,
+    transferCents,
     netCents: incomeCents - expenseCents,
   };
 }
@@ -114,6 +123,11 @@ const DIALECTS: Record<'csv-excel' | 'csv-padrao', CsvDialect> = {
   'csv-padrao': { separator: ',', decimalComma: false, brDate: false, bom: false },
 };
 
+/**
+ * `Valor` fica vazio nas transferências e o montante vai para `Transferido`.
+ * É o que mantém a promessa da coluna: somá-la dá o resultado do período, sem
+ * que um dinheiro que só mudou de conta entre na conta duas vezes.
+ */
 const CSV_HEADER = [
   'Data',
   'Tipo',
@@ -121,8 +135,16 @@ const CSV_HEADER = [
   'Categoria',
   'Conta',
   'Valor',
+  'Transferido',
+  'Parcela',
   'Origem',
 ] as const;
+
+const TYPE_LABELS: Record<Transaction['type'], string> = {
+  income: 'Entrada',
+  expense: 'Saída',
+  transfer: 'Transferência',
+};
 
 /** Campos com separador, aspas ou quebra de linha viram texto entre aspas. */
 function escapeCsv(value: string, separator: string): string {
@@ -141,19 +163,38 @@ export function toCsv(format: 'csv-excel' | 'csv-padrao', options: ExportOptions
     return dialect.decimalComma ? plain.replace('.', ',') : plain;
   };
 
-  const rows = options.transactions.map((transaction) => [
-    dialect.brDate ? toBrDate(transaction.date) : transaction.date,
-    transaction.type === 'income' ? 'Entrada' : 'Saída',
-    transaction.description,
-    transaction.category,
-    transaction.accountName ?? '',
-    amountOf(signedCents(transaction)),
-    transaction.recurrenceId ? 'Recorrência' : 'Manual',
-  ]);
+  const rows = options.transactions.map((transaction) => {
+    const transfer = transaction.type === 'transfer';
+    return [
+      dialect.brDate ? toBrDate(transaction.date) : transaction.date,
+      TYPE_LABELS[transaction.type],
+      transaction.description,
+      transaction.category,
+      transfer
+        ? `${transaction.accountName ?? '?'} → ${transaction.transferAccountName ?? '?'}`
+        : (transaction.accountName ?? ''),
+      transfer ? '' : amountOf(signedCents(transaction)),
+      transfer ? amountOf(transaction.amountCents) : '',
+      transaction.installmentTotal
+        ? `${transaction.installmentNumber}/${transaction.installmentTotal}`
+        : '',
+      transaction.recurrenceId ? 'Recorrência' : 'Manual',
+    ];
+  });
 
   if (options.includeTotals) {
     const summary = summarize(options.transactions);
-    rows.push(['', '', 'TOTAL', '', '', amountOf(summary.netCents), '']);
+    rows.push([
+      '',
+      '',
+      'TOTAL',
+      '',
+      '',
+      amountOf(summary.netCents),
+      summary.transferCents > 0 ? amountOf(summary.transferCents) : '',
+      '',
+      '',
+    ]);
   }
 
   const lines = [[...CSV_HEADER], ...rows].map((row) =>
@@ -185,6 +226,8 @@ export function toJson(options: ExportOptions): string {
         quantidade: summary.count,
         entradasCents: summary.incomeCents,
         saidasCents: summary.expenseCents,
+        /** Fora do resultado: transferência só muda o dinheiro de conta. */
+        transferidoCents: summary.transferCents,
         resultadoCents: summary.netCents,
       },
       transacoes: options.transactions,
@@ -225,19 +268,39 @@ export function toPrintableHtml(options: ExportOptions): string {
 
   const rows = options.transactions
     .map((transaction) => {
+      const transfer = transaction.type === 'transfer';
       const income = transaction.type === 'income';
+
+      const detalhe = transfer
+        ? `${escapeHtml(transaction.accountName ?? '—')} → ${escapeHtml(
+            transaction.transferAccountName ?? '—',
+          )}`
+        : `${escapeHtml(transaction.category)}${
+            transaction.accountName ? ` · ${escapeHtml(transaction.accountName)}` : ''
+          }`;
+
+      const parcela = transaction.installmentTotal
+        ? ` <span class="fraco">${transaction.installmentNumber}/${transaction.installmentTotal}</span>`
+        : '';
+
+      const classe = transfer ? 'transferencia' : income ? 'entrada' : 'saida';
+      const sinal = transfer ? '' : income ? '+ ' : '− ';
+
       return `<tr>
         <td class="data">${toBrDate(transaction.date)}</td>
-        <td>${escapeHtml(transaction.description)}</td>
-        <td class="fraco">${escapeHtml(transaction.category)}${
-          transaction.accountName ? ` · ${escapeHtml(transaction.accountName)}` : ''
-        }</td>
-        <td class="valor ${income ? 'entrada' : 'saida'}">${income ? '+' : '−'} ${formatCurrency(
-          transaction.amountCents,
-        )}</td>
+        <td>${escapeHtml(transaction.description)}${parcela}</td>
+        <td class="fraco">${detalhe}</td>
+        <td class="valor ${classe}">${sinal}${formatCurrency(transaction.amountCents)}</td>
       </tr>`;
     })
     .join('\n');
+
+  const transferido =
+    summary.transferCents > 0
+      ? `<div><dt>Transferido</dt><dd class="transferencia">${formatCurrency(
+          summary.transferCents,
+        )}</dd></div>`
+      : '';
 
   return `<!doctype html>
 <html lang="pt-BR">
@@ -269,6 +332,7 @@ export function toPrintableHtml(options: ExportOptions): string {
   .valor { text-align: right; padding-right: 0; font-weight: 600; }
   .entrada { color: #0f7a3f; }
   .saida { color: #a32e2a; }
+  .transferencia { color: #565552; }
   th:last-child { text-align: right; padding-right: 0; }
   footer { margin-top: 18px; padding-top: 8px; border-top: 1px solid #d9d8d4;
            font-size: 10.5px; color: #6b6a66; }
@@ -285,6 +349,7 @@ export function toPrintableHtml(options: ExportOptions): string {
     <div><dt>Entradas</dt><dd class="entrada">${formatCurrency(summary.incomeCents)}</dd></div>
     <div><dt>Saídas</dt><dd class="saida">${formatCurrency(summary.expenseCents)}</dd></div>
     <div><dt>Resultado</dt><dd>${formatCurrency(summary.netCents)}</dd></div>
+    ${transferido}
     <div><dt>Transações</dt><dd>${summary.count}</dd></div>
   </dl>
 
