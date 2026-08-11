@@ -1,44 +1,55 @@
 /**
- * Popula o banco com dados de demonstração.
+ * Popula um banco com dados de demonstração — contas, meses de histórico,
+ * recorrências, uma compra parcelada, transferências e limites de gasto.
  *
- *   npm run seed            → apaga as transações existentes e insere a demonstração
- *   npm run seed -- --keep  → mantém o que já existe e apenas acrescenta
+ *   npm run seed                          → substitui o conteúdo do banco padrão
+ *   npm run seed -- --db=data/demo.sqlite → escreve num banco à parte
+ *   npm run seed -- --keep                → acrescenta sem apagar o que já existe
  *
  * Para voltar a um app vazio: `npm run db:reset`.
  */
+import path from 'node:path';
 import { config } from '../config';
 import { openDatabase } from '../db/connection';
 import { createServices } from '../services';
-import { buildDemoTransactions, DEMO_INITIAL_BALANCE_CENTS } from './demo-data';
+import { populateDemo } from './demo-data';
+
+/**
+ * `--db=caminho` escolhe outro arquivo, deixando o banco de uso diário intacto.
+ * Caminhos relativos contam a partir da raiz do projeto — e não de onde o
+ * comando foi digitado, que muda conforme o npm resolve o workspace.
+ */
+function resolveDatabasePath(): string {
+  const argumento = process.argv.find((arg) => arg.startsWith('--db='));
+  if (!argumento) return config.databasePath;
+
+  const informado = argumento.slice('--db='.length);
+  return path.isAbsolute(informado) ? informado : path.join(config.projectRoot, informado);
+}
+
+function reais(cents: number): string {
+  return (cents / 100).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+}
 
 function main(): void {
   const keepExisting = process.argv.includes('--keep');
-  const db = openDatabase(config.databasePath);
+  const databasePath = resolveDatabasePath();
+  const db = openDatabase(databasePath);
   const services = createServices(db);
 
+  // Sem `--keep` o banco volta à estaca zero: contas, limites e recorrências
+  // antigas sairiam junto com as transações e deixariam a demonstração torta.
   if (!keepExisting) {
-    db.exec('DELETE FROM transactions');
+    services.maintenance.resetAll();
   }
 
-  const transactions = buildDemoTransactions();
+  const resumo = populateDemo(services);
 
-  db.exec('BEGIN');
-  try {
-    for (const transaction of transactions) {
-      services.transactions.create(transaction);
-    }
-    services.settings.update({ initialBalanceCents: DEMO_INITIAL_BALANCE_CENTS });
-    db.exec('COMMIT');
-  } catch (error) {
-    db.exec('ROLLBACK');
-    throw error;
-  }
-
-  const balance = services.analytics.currentBalanceCents();
-  console.log(`\n  ${transactions.length} transações de demonstração criadas.`);
-  console.log(`  Saldo inicial: R$ ${(DEMO_INITIAL_BALANCE_CENTS / 100).toFixed(2)}`);
-  console.log(`  Saldo atual:   R$ ${(balance / 100).toFixed(2)}`);
-  console.log(`  Banco:         ${config.databasePath}\n`);
+  console.log(`\n  Demonstração criada em ${databasePath}\n`);
+  console.log(`  ${resumo.transactions} transações, cobrindo vários meses`);
+  console.log(`  ${resumo.accounts} contas · ${resumo.recurrences} recorrências · ${resumo.budgets} limites`);
+  console.log(`  1 compra em ${resumo.installments}x · ${resumo.transfers} transferências`);
+  console.log(`  Saldo atual: ${reais(resumo.balanceCents)}\n`);
 
   db.close();
 }

@@ -24,18 +24,25 @@ A maioria das pessoas descobre isso tarde demais — quando o mês vira e o sald
 
 Nada de conectar o banco, entregar sua senha ou criar mais uma conta. Você anota, ele calcula.
 
-<!--
-  CAPTURAS DE TELA — para ligar, apague a primeira e a última linha deste bloco
-  (as que abrem e fecham o comentário) e salve os três prints em docs/ com estes
-  nomes: painel, análises e histórico.
-
 <div align="center">
-  <img src="docs/tela-painel.png" alt="Painel com saldo, entradas e saídas" width="32%">
-  <img src="docs/tela-analises.png" alt="Gráficos de análise" width="32%">
-  <img src="docs/tela-historico.png" alt="Histórico de transações" width="32%">
-</div>
 
--->
+<img src="docs/tela-painel.png" alt="Painel com saldo atual, entradas, saídas e avisos de limite de gasto" width="100%">
+
+<sub><b>Visão geral</b> — o saldo de hoje, o resultado do mês e um aviso quando um limite aperta</sub>
+
+<br><br>
+
+<img src="docs/tela-analises.png" alt="Limites de gastos por categoria e evolução do saldo ao longo do tempo" width="100%">
+
+<sub><b>Análises</b> — quanto já foi de cada limite e como o saldo se moveu ao longo do tempo</sub>
+
+<br><br>
+
+<img src="docs/tela-transacoes.png" alt="Histórico de transações com os lançamentos recorrentes no topo" width="100%">
+
+<sub><b>Transações</b> — o histórico completo, com busca, filtros e os lançamentos automáticos</sub>
+
+</div>
 
 <br>
 

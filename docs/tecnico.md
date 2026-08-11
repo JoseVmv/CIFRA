@@ -367,13 +367,32 @@ para lugar nenhum e o servidor não guarda arquivo algum.
 ## Dados de demonstração
 
 ```bash
-npm run seed            # substitui o conteúdo atual pela demonstração
-npm run seed -- --keep  # acrescenta sem apagar o que já existe
+npm run seed                           # substitui o conteúdo do banco padrão
+npm run seed -- --db=data/demo.sqlite  # escreve num banco à parte
+npm run seed -- --keep                 # acrescenta sem apagar o que já existe
 ```
 
-Gera cerca de 95 transações espalhadas pelos últimos 100 dias (salário, aluguel,
-mercado, transporte, faculdade…) e define um saldo inicial de R$ 4.500,00, o
-suficiente para exercitar gráficos, filtros e paginação.
+Monta um app inteiro, não só uma lista de lançamentos: **3 contas**, cerca de
+**240 transações** cobrindo sete meses, **3 recorrências**, uma **compra em 8x**,
+**14 transferências** e **3 limites de gasto**.
+
+Duas escolhas fazem a demonstração parecer real:
+
+- **Tudo passa pelos serviços de verdade**, nunca por `INSERT` direto. Por isso os
+  salários aparecem marcados como recorrentes e as parcelas saem numeradas — quem
+  os criou foi o próprio app.
+- **Os números são calibrados no fim.** O saldo inicial de cada conta é calculado
+  de trás para frente, para todas terminarem num valor apresentável, e os limites
+  de gasto são derivados do consumo real do mês, de forma a mostrar os três
+  estados de uma vez: tranquilo, no limite e estourado.
+
+O `--db=` é o que permite gerar dados de vitrine (para capturas de tela, por
+exemplo) sem encostar no banco de uso diário. Caminhos relativos contam a partir
+da raiz do projeto. Para abrir o app nesse banco, sem derrubar o de sempre:
+
+```bash
+DATABASE_PATH=data/demo.sqlite PORT=4100 node backend/dist/server.js
+```
 
 Esses dados vivem apenas em `backend/src/scripts/demo-data.ts` e **não são
 carregados automaticamente em momento algum** — o app sobe vazio, com estados
