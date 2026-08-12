@@ -4,6 +4,7 @@ import { catchUpRecurrences } from '../middleware/recurrences';
 import { createAccountsRouter } from './accounts.routes';
 import { createAnalyticsRouter } from './analytics.routes';
 import { createBudgetsRouter } from './budgets.routes';
+import { createCategoriesRouter } from './categories.routes';
 import { createDataRouter } from './data.routes';
 import { createRecurrencesRouter } from './recurrences.routes';
 import { createSettingsRouter } from './settings.routes';
@@ -23,6 +24,7 @@ export function createApiRouter(services: Services): Router {
   router.use('/transactions', createTransactionsRouter(services));
   router.use('/accounts', createAccountsRouter(services));
   router.use('/budgets', createBudgetsRouter(services));
+  router.use('/categories', createCategoriesRouter(services));
   router.use('/recurrences', createRecurrencesRouter(services));
   router.use(createAnalyticsRouter(services));
   router.use(createSettingsRouter(services));

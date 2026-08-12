@@ -2,6 +2,7 @@ import type { ReactNode } from 'react';
 import { Card } from '../ui/Card';
 import { Skeleton } from '../ui/States';
 import { IconArrowDown, IconArrowUp, IconScales, IconWallet } from '../ui/Icons';
+import { useT } from '../../i18n';
 import { formatCurrency } from '../../lib/format';
 import { cn } from '../../lib/cn';
 import type { Summary } from '../../types/api';
@@ -68,6 +69,8 @@ interface SummaryCardsProps {
 }
 
 export function SummaryCards({ summary, periodLabel, loading }: SummaryCardsProps) {
+  const t = useT();
+
   if (loading || !summary) {
     return (
       <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
@@ -83,30 +86,30 @@ export function SummaryCards({ summary, periodLabel, loading }: SummaryCardsProp
   return (
     <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
       <StatCard
-        label="Saldo atual"
+        label={t.dashboard.currentBalance}
         value={formatCurrency(summary.currentBalanceCents)}
-        hint={`Inclui ${formatCurrency(summary.initialBalanceCents)} de saldo inicial`}
+        hint={t.dashboard.includesInitial(formatCurrency(summary.initialBalanceCents))}
         icon={<IconWallet />}
         emphasis
       />
       <StatCard
-        label="Entradas"
+        label={t.type.incomePlural}
         value={formatCurrency(summary.incomeCents)}
         hint={periodLabel}
         icon={<IconArrowUp />}
         tone="income"
       />
       <StatCard
-        label="Saídas"
+        label={t.type.expensePlural}
         value={formatCurrency(summary.expenseCents)}
         hint={periodLabel}
         icon={<IconArrowDown />}
         tone="expense"
       />
       <StatCard
-        label="Resultado"
+        label={t.dashboard.result}
         value={`${positive ? '+' : '−'} ${formatCurrency(Math.abs(summary.netCents))}`}
-        hint={positive ? 'Você guardou dinheiro no período' : 'Você gastou mais do que recebeu'}
+        hint={positive ? t.dashboard.savedMoney : t.dashboard.spentMore}
         icon={<IconScales />}
         tone={positive ? 'income' : 'expense'}
       />

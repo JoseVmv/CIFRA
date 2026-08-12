@@ -7,23 +7,32 @@ import { IconPencil, IconPlus, IconTarget, IconTrash } from '../ui/Icons';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
 import { useApiResource } from '../../hooks/useApiResource';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
+import type { Dictionary } from '../../i18n/pt';
 import { api, ApiError } from '../../lib/api';
-import { formatCurrency, formatDayMonth } from '../../lib/format';
+import { formatCurrency, formatDayMonth, formatPercent } from '../../lib/format';
 import { cn } from '../../lib/cn';
 import type { BudgetStatus, BudgetUsage } from '../../types/api';
 
-const percentFormatter = new Intl.NumberFormat('pt-BR', { maximumFractionDigits: 0 });
-
-/** Cada estado tem cor, rótulo e ícone — a cor nunca conta a história sozinha. */
-const STATUS_STYLE: Record<BudgetStatus, { bar: string; text: string; label: string | null }> = {
-  ok: { bar: 'var(--accent)', text: 'text-ink-3', label: null },
-  warning: { bar: 'var(--warning)', text: 'text-warning-text', label: 'Perto do limite' },
-  exceeded: { bar: 'var(--expense)', text: 'text-expense-text', label: 'Limite estourado' },
+/** Cada estado tem cor e rótulo — a cor nunca conta a história sozinha. */
+const STATUS_STYLE: Record<BudgetStatus, { bar: string; text: string }> = {
+  ok: { bar: 'var(--accent)', text: 'text-ink-3' },
+  warning: { bar: 'var(--warning)', text: 'text-warning-text' },
+  exceeded: { bar: 'var(--expense)', text: 'text-expense-text' },
 };
+
+function statusLabel(status: BudgetStatus, t: Dictionary): string | null {
+  if (status === 'warning') return t.budgets.nearLimit;
+  if (status === 'exceeded') return t.budgets.exceeded;
+  return null;
+}
 
 export function BudgetsCard() {
   const { anchor, version, refresh } = useFinance();
   const { notify } = useToast();
+  const t = useT();
+  const { language } = useLanguage();
 
   const budgets = useApiResource(() => api.listBudgets(anchor), [anchor, version]);
   const [editing, setEditing] = useState<BudgetUsage | null>(null);
@@ -44,13 +53,10 @@ export function BudgetsCard() {
   async function remove(budget: BudgetUsage): Promise<void> {
     try {
       await api.deleteBudget(budget.id);
-      notify(`Limite de ${budget.category} removido`);
+      notify(t.budgets.removed(categoryLabel(budget.category, language)));
       refresh();
     } catch (error) {
-      notify(
-        error instanceof ApiError ? error.message : 'Não foi possível remover o limite.',
-        'error',
-      );
+      notify(error instanceof ApiError ? error.message : t.budgets.removeFailed, 'error');
     }
   }
 
@@ -58,12 +64,12 @@ export function BudgetsCard() {
     <>
       <Card>
         <CardHeader
-          title="Limites de gastos"
-          description="Quanto você quer gastar por categoria, e quanto já foi."
+          title={t.budgets.title}
+          description={t.budgets.subtitle}
           action={
             items.length > 0 && (
               <Button size="sm" variant="secondary" icon={<IconPlus />} onClick={openNew}>
-                Novo limite
+                {t.budgets.newBudget}
               </Button>
             )
           }
@@ -82,11 +88,11 @@ export function BudgetsCard() {
           ) : items.length === 0 ? (
             <EmptyState
               icon={<IconTarget />}
-              title="Nenhum limite definido"
-              description="Escolha uma categoria e um valor máximo para o período. O app avisa quando você chegar perto."
+              title={t.budgets.emptyTitle}
+              description={t.budgets.emptyDescription}
               action={
                 <Button variant="primary" icon={<IconPlus />} onClick={openNew}>
-                  Criar limite
+                  {t.budgets.createBudget}
                 </Button>
               }
               className="py-8"
@@ -123,15 +129,22 @@ interface BudgetRowProps {
 }
 
 function BudgetRow({ budget, onEdit, onRemove }: BudgetRowProps) {
+  const t = useT();
+  const { language } = useLanguage();
   const style = STATUS_STYLE[budget.status];
+  const label = statusLabel(budget.status, t);
+  const name = categoryLabel(budget.category, language);
 
   return (
     <li className="group">
       <div className="flex items-baseline justify-between gap-4">
-        <span className="truncate text-sm font-medium text-ink">{budget.category}</span>
+        <span className="truncate text-sm font-medium text-ink">{name}</span>
         <span className="tnum shrink-0 text-[13px] text-ink-2">
           {formatCurrency(budget.spentCents)}
-          <span className="text-ink-3"> de {formatCurrency(budget.limitCents)}</span>
+          <span className="text-ink-3">
+            {' '}
+            {t.common.of} {formatCurrency(budget.limitCents)}
+          </span>
         </span>
       </div>
 
@@ -141,7 +154,7 @@ function BudgetRow({ budget, onEdit, onRemove }: BudgetRowProps) {
         aria-valuenow={Math.round(budget.percent)}
         aria-valuemin={0}
         aria-valuemax={100}
-        aria-label={`Consumo do limite de ${budget.category}`}
+        aria-label={t.budgets.usageLabel(name)}
       >
         <div
           className="h-full rounded-full transition-[width] duration-500 ease-out"
@@ -154,13 +167,13 @@ function BudgetRow({ budget, onEdit, onRemove }: BudgetRowProps) {
 
       <div className="mt-2 flex items-center justify-between gap-3">
         <p className={cn('text-xs', style.text)}>
-          <span className="tnum font-medium">{percentFormatter.format(budget.percent)}%</span>
-          {style.label && <> · {style.label}</>}
+          <span className="tnum font-medium">{formatPercent(budget.percent, 0)}%</span>
+          {label && <> · {label}</>}
           <span className="text-ink-3">
             {' · '}
             {budget.remainingCents >= 0
-              ? `restam ${formatCurrency(budget.remainingCents)}`
-              : `${formatCurrency(-budget.remainingCents)} acima`}
+              ? t.budgets.remaining(formatCurrency(budget.remainingCents))
+              : t.budgets.over(formatCurrency(-budget.remainingCents))}
           </span>
         </p>
 
@@ -168,11 +181,11 @@ function BudgetRow({ budget, onEdit, onRemove }: BudgetRowProps) {
           <span className="mr-1 hidden text-[11px] text-ink-3 sm:inline">
             {formatDayMonth(budget.window.from)} – {formatDayMonth(budget.window.to)}
           </span>
-          <IconButton label={`Editar limite de ${budget.category}`} className="size-7" onClick={onEdit}>
+          <IconButton label={t.budgets.editLabel(name)} className="size-7" onClick={onEdit}>
             <IconPencil />
           </IconButton>
           <IconButton
-            label={`Remover limite de ${budget.category}`}
+            label={t.budgets.removeLabel(name)}
             className="size-7 hover:bg-expense-soft hover:text-expense-text"
             onClick={onRemove}
           >

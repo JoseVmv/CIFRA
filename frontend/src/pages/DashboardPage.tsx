@@ -14,6 +14,7 @@ import { IconEmpty, IconPlus } from '../components/ui/Icons';
 import { useFinance } from '../context/FinanceContext';
 import { useTransactionDialog } from '../context/TransactionDialogContext';
 import { useApiResource } from '../hooks/useApiResource';
+import { useT } from '../i18n';
 import { api } from '../lib/api';
 import { formatCurrency } from '../lib/format';
 
@@ -23,10 +24,11 @@ export function DashboardPage() {
   const { period, anchor, version, settings } = useFinance();
   const { openNew } = useTransactionDialog();
   const periodLabel = usePeriodLabel();
+  const t = useT();
 
   const greeting = settings?.displayName
-    ? `Olá, ${settings.displayName}. Seu dinheiro hoje e como ele se moveu no período.`
-    : 'Seu dinheiro hoje e como ele se moveu no período.';
+    ? t.dashboard.greeting(settings.displayName)
+    : t.dashboard.subtitle;
 
   const summary = useApiResource(
     () => api.getSummary(period, anchor),
@@ -53,7 +55,7 @@ export function DashboardPage() {
 
   return (
     <>
-      <PageHeader title="Visão geral" description={greeting} actions={<PeriodSelector />} />
+      <PageHeader title={t.dashboard.title} description={greeting} actions={<PeriodSelector />} />
 
       <div className="flex flex-col gap-4 sm:gap-6">
         <BudgetAlert />
@@ -68,15 +70,15 @@ export function DashboardPage() {
           <Card>
             <EmptyState
               icon={<IconEmpty />}
-              title="Nenhuma transação ainda"
-              description="Adicione sua primeira entrada ou saída para começar a acompanhar suas finanças. Se quiser, defina antes quanto você tem hoje na aba Usuário."
+              title={t.dashboard.emptyTitle}
+              description={t.dashboard.emptyDescription}
               action={
                 <div className="flex flex-wrap items-center justify-center gap-2">
                   <Button variant="primary" icon={<IconPlus />} onClick={() => openNew('income')}>
-                    Nova transação
+                    {t.nav.newTransaction}
                   </Button>
                   <Link to="/usuario">
-                    <Button variant="secondary">Definir saldo inicial</Button>
+                    <Button variant="secondary">{t.dashboard.setInitialBalance}</Button>
                   </Link>
                 </div>
               }
@@ -87,10 +89,10 @@ export function DashboardPage() {
             <div className="grid gap-4 sm:gap-6 lg:grid-cols-3">
               <ChartCard
                 className="lg:col-span-2"
-                title="Entradas e saídas"
+                title={t.dashboard.cashflowTitle}
                 description={periodLabel}
                 dimmed={statistics.isRefreshing}
-                legend={cashflowLegend(statistics.data?.series ?? [])}
+                legend={cashflowLegend(statistics.data?.series ?? [], t)}
                 table={<CashflowTable series={statistics.data?.series ?? []} />}
               >
                 {statistics.isInitialLoading ? (
@@ -101,7 +103,7 @@ export function DashboardPage() {
               </ChartCard>
 
               <Card className="flex flex-col">
-                <CardHeader title="Para onde foi o dinheiro" description={periodLabel} />
+                <CardHeader title={t.dashboard.whereMoneyWent} description={periodLabel} />
                 <div className="flex-1 px-5 pt-5 pb-6 sm:px-6">
                   {statistics.isInitialLoading ? (
                     <div className="flex flex-col gap-5">
@@ -120,8 +122,8 @@ export function DashboardPage() {
                     />
                   ) : (
                     <EmptyState
-                      title="Nenhuma saída no período"
-                      description="Quando você registrar gastos, eles aparecem aqui divididos por categoria."
+                      title={t.dashboard.noExpensesTitle}
+                      description={t.dashboard.noExpensesDescription}
                       className="py-8"
                     />
                   )}
@@ -131,16 +133,18 @@ export function DashboardPage() {
 
             <Card>
               <CardHeader
-                title="Últimas transações"
+                title={t.dashboard.latest}
                 description={
-                  recent.data ? `${recent.data.total} no total` : 'Carregando seu histórico'
+                  recent.data
+                    ? t.dashboard.totalCount(recent.data.total)
+                    : t.dashboard.loadingHistory
                 }
                 action={
                   <Link
                     to="/transacoes"
                     className="text-[13px] font-medium text-ink-2 underline-offset-4 hover:text-ink hover:underline"
                   >
-                    Ver histórico
+                    {t.dashboard.seeHistory}
                   </Link>
                 }
               />
@@ -161,9 +165,10 @@ export function DashboardPage() {
 
         {summary.data && (
           <p className="px-1 text-xs text-ink-3">
-            Saldo atual = saldo inicial ({formatCurrency(summary.data.initialBalanceCents)}
-            {settings?.useMultipleAccounts ? ', somando suas contas' : ''}) + entradas − saídas de
-            todo o histórico.
+            {t.dashboard.balanceFormula(
+              formatCurrency(summary.data.initialBalanceCents),
+              settings?.useMultipleAccounts ?? false,
+            )}
           </p>
         )}
       </div>

@@ -12,21 +12,23 @@ import { EmptyState, ErrorState, Skeleton } from '../components/ui/States';
 import { IconArrowDown, IconArrowUp } from '../components/ui/Icons';
 import { useFinance } from '../context/FinanceContext';
 import { useApiResource } from '../hooks/useApiResource';
+import { useT } from '../i18n';
 import { api } from '../lib/api';
-import { formatCurrency } from '../lib/format';
+import { formatCurrency, formatPercent } from '../lib/format';
 import { periodWindowLabel } from '../lib/months';
 import { cn } from '../lib/cn';
 import type { TransactionType } from '../types/api';
 
-const BREAKDOWN_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
-  { value: 'expense', label: 'Saídas' },
-  { value: 'income', label: 'Entradas' },
-];
-
 export function AnalyticsPage() {
   const { period, anchor, version } = useFinance();
   const periodLabel = usePeriodLabel();
+  const t = useT();
   const [breakdownType, setBreakdownType] = useState<TransactionType>('expense');
+
+  const breakdownOptions: ReadonlyArray<{ value: TransactionType; label: string }> = [
+    { value: 'expense', label: t.type.expensePlural },
+    { value: 'income', label: t.type.incomePlural },
+  ];
 
   const statistics = useApiResource(
     () => api.getStatistics(period, anchor),
@@ -46,31 +48,35 @@ export function AnalyticsPage() {
   const comparison = data?.comparison ?? null;
   const slices =
     breakdownType === 'expense' ? (data?.expensesByCategory ?? []) : (data?.incomeByCategory ?? []);
-  const granularityNote =
-    data?.range.granularity === 'month' ? 'Agrupado por mês' : 'Um ponto por dia';
+  const byMonth = data?.range.granularity === 'month';
+  const granularityNote = byMonth ? t.analytics.groupedByMonth : t.analytics.onePointPerDay;
 
   return (
     <>
       <PageHeader
-        title="Análises"
-        description="Como o seu dinheiro se moveu ao longo do tempo."
+        title={t.analytics.title}
+        description={t.analytics.subtitle}
         actions={<PeriodSelector />}
       />
 
       <div className="flex flex-col gap-4 sm:gap-6">
         <Card className="p-5 sm:p-6">
           <div className="flex flex-wrap items-baseline justify-between gap-2">
-            <p className="text-[13px] font-medium text-ink-3">Resumo · {periodLabel}</p>
+            <p className="text-[13px] font-medium text-ink-3">
+              {t.analytics.summary} · {periodLabel}
+            </p>
             {comparison && (
               <p className="text-xs text-ink-3">
-                comparado com {periodWindowLabel(period, comparison.range.to ?? anchor)}
+                {t.analytics.comparedWith(
+                  periodWindowLabel(period, comparison.range.to ?? anchor) || t.period.all,
+                )}
               </p>
             )}
           </div>
 
           <dl className="mt-4 grid gap-5 sm:grid-cols-3">
             <SummaryLine
-              label="Entradas"
+              label={t.type.incomePlural}
               value={data ? formatCurrency(data.totals.incomeCents) : null}
               tone="income"
               change={comparison?.incomeChangePercent ?? null}
@@ -78,14 +84,14 @@ export function AnalyticsPage() {
               higherIsBetter
             />
             <SummaryLine
-              label="Saídas"
+              label={t.type.expensePlural}
               value={data ? formatCurrency(data.totals.expenseCents) : null}
               tone="expense"
               change={comparison?.expenseChangePercent ?? null}
               previous={comparison ? formatCurrency(comparison.totals.expenseCents) : null}
             />
             <SummaryLine
-              label="Resultado"
+              label={t.dashboard.result}
               value={data ? formatCurrency(data.totals.netCents) : null}
               tone={data && data.totals.netCents < 0 ? 'expense' : 'income'}
               previous={comparison ? formatCurrency(comparison.totals.netCents) : null}
@@ -96,10 +102,10 @@ export function AnalyticsPage() {
         </Card>
 
         <ChartCard
-          title="Entradas e saídas"
+          title={t.dashboard.cashflowTitle}
           description={`${periodLabel} · ${granularityNote}`}
           dimmed={statistics.isRefreshing}
-          legend={cashflowLegend(series)}
+          legend={cashflowLegend(series, t)}
           table={<CashflowTable series={series} />}
         >
           {statistics.isInitialLoading ? (
@@ -112,8 +118,8 @@ export function AnalyticsPage() {
         <BudgetsCard />
 
         <ChartCard
-          title="Evolução do saldo"
-          description={`Saldo acumulado ao final de cada ${data?.range.granularity === 'month' ? 'mês' : 'dia'}`}
+          title={t.analytics.balanceEvolution}
+          description={t.analytics.balanceEvolutionHint(byMonth)}
           dimmed={statistics.isRefreshing}
           table={<BalanceTable series={series} />}
         >
@@ -126,12 +132,12 @@ export function AnalyticsPage() {
 
         <Card>
           <CardHeader
-            title="Distribuição por categoria"
+            title={t.analytics.distribution}
             description={periodLabel}
             action={
               <SegmentedControl
-                ariaLabel="Tipo de transação na distribuição"
-                options={BREAKDOWN_OPTIONS}
+                ariaLabel={t.analytics.distributionType}
+                options={breakdownOptions}
                 value={breakdownType}
                 onChange={setBreakdownType}
               />
@@ -153,10 +159,10 @@ export function AnalyticsPage() {
               <EmptyState
                 title={
                   breakdownType === 'expense'
-                    ? 'Nenhuma saída no período'
-                    : 'Nenhuma entrada no período'
+                    ? t.analytics.noExpenseTitle
+                    : t.analytics.noIncomeTitle
                 }
-                description="Escolha outro período ou registre transações para ver a distribuição."
+                description={t.analytics.distributionEmpty}
               />
             )}
           </div>
@@ -185,6 +191,8 @@ function SummaryLine({
   previous,
   higherIsBetter = false,
 }: SummaryLineProps) {
+  const t = useT();
+
   return (
     <div>
       <dt className="text-[13px] text-ink-3">{label}</dt>
@@ -203,7 +211,7 @@ function SummaryLine({
       {previous !== null && (
         <p className="mt-1.5 flex flex-wrap items-center gap-x-2 text-xs text-ink-3">
           {change !== null && <ChangeBadge change={change} higherIsBetter={higherIsBetter} />}
-          <span>antes {previous}</span>
+          <span>{t.analytics.before(previous)}</span>
         </p>
       )}
     </div>
@@ -211,8 +219,10 @@ function SummaryLine({
 }
 
 function ChangeBadge({ change, higherIsBetter }: { change: number; higherIsBetter: boolean }) {
+  const t = useT();
+
   if (change === 0) {
-    return <span className="text-ink-3">sem variação</span>;
+    return <span className="text-ink-3">{t.analytics.noChange}</span>;
   }
 
   const rising = change > 0;
@@ -227,7 +237,7 @@ function ChangeBadge({ change, higherIsBetter }: { change: number; higherIsBette
     >
       {rising ? <IconArrowUp className="size-3" /> : <IconArrowDown className="size-3" />}
       {rising ? '+' : '−'}
-      {Math.abs(change).toLocaleString('pt-BR', { maximumFractionDigits: 1 })}%
+      {formatPercent(Math.abs(change))}%
     </span>
   );
 }

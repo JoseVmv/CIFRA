@@ -2,6 +2,7 @@ import type { DatabaseSync } from 'node:sqlite';
 import { createAccountsService, type AccountsService } from './accounts.service';
 import { createAnalyticsService, type AnalyticsService } from './analytics.service';
 import { createBudgetsService, type BudgetsService } from './budgets.service';
+import { createCategoriesService, type CategoriesService } from './categories.service';
 import { createMaintenanceService, type MaintenanceService } from './maintenance.service';
 import { createRecurrencesService, type RecurrencesService } from './recurrences.service';
 import { createSettingsService, type SettingsService } from './settings.service';
@@ -15,6 +16,7 @@ export interface Services {
   recurrences: RecurrencesService;
   analytics: AnalyticsService;
   budgets: BudgetsService;
+  categories: CategoriesService;
   maintenance: MaintenanceService;
 }
 
@@ -29,6 +31,17 @@ export function createServices(db: DatabaseSync): Services {
   const recurrences = createRecurrencesService(db, transactions);
   const analytics = createAnalyticsService(db, settings, transactions, recurrences);
   const budgets = createBudgetsService(db);
+  const categories = createCategoriesService(db);
   const maintenance = createMaintenanceService(db);
-  return { db, accounts, settings, transactions, recurrences, analytics, budgets, maintenance };
+  return {
+    db,
+    accounts,
+    settings,
+    transactions,
+    recurrences,
+    analytics,
+    budgets,
+    categories,
+    maintenance,
+  };
 }

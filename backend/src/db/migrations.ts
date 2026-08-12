@@ -1,4 +1,7 @@
+import { randomUUID } from 'node:crypto';
 import type { DatabaseSync } from 'node:sqlite';
+import { DEFAULT_CATEGORIES } from '../domain/categories';
+import { TRANSFER_CATEGORY, type CashflowType } from '../domain/types';
 
 /**
  * Migrations incrementais controladas por `PRAGMA user_version`.
@@ -149,7 +152,80 @@ const MIGRATIONS: readonly string[] = [
       ON transactions (recurrence_id, date)
    WHERE recurrence_id IS NOT NULL;
   `,
+
+  // 7. Categorias personalizadas.
+  //
+  //    As categorias sugeridas continuam no código (domain/categories.ts) porque
+  //    a interface as traduz; esta tabela guarda só as que o usuário inventou,
+  //    que são texto dele e aparecem igual em qualquer idioma.
+  //
+  //    A transação continua guardando o *nome* da categoria, não uma chave
+  //    estrangeira: é o que mantém o histórico legível e desacoplado, e é o que
+  //    já estava lá. Renomear, por isso, é uma atualização em cascata feita pelo
+  //    serviço — nunca um ON UPDATE do SQLite.
+  `
+  CREATE TABLE custom_categories (
+    id         TEXT PRIMARY KEY,
+    name       TEXT NOT NULL CHECK (length(name) BETWEEN 1 AND 40),
+    type       TEXT NOT NULL CHECK (type IN ('income', 'expense')),
+    position   INTEGER NOT NULL DEFAULT 0,
+    created_at TEXT NOT NULL,
+    updated_at TEXT NOT NULL
+  );
+
+  -- Duas categorias do mesmo tipo não podem ter o mesmo nome, e "Pets" e "pets"
+  -- são o mesmo nome: sem NOCASE o usuário criaria duplicatas sem perceber.
+  CREATE UNIQUE INDEX idx_custom_categories_name
+      ON custom_categories (type, name COLLATE NOCASE);
+
+  CREATE INDEX idx_custom_categories_position
+      ON custom_categories (type, position, created_at);
+  `,
 ];
+
+/**
+ * Traz para `custom_categories` tudo que o usuário já digitou à mão antes de a
+ * tela de categorias existir.
+ *
+ * Fica fora do array de migrations porque precisa da lista de categorias
+ * sugeridas, que vive no TypeScript — e uma migration é só SQL. Roda uma vez,
+ * logo depois delas, e é idempotente: numa base já convertida não encontra nada
+ * para inserir.
+ */
+function adoptExistingCategories(db: DatabaseSync): void {
+  const now = new Date().toISOString();
+
+  const rows = db
+    .prepare(
+      `SELECT DISTINCT type, category
+         FROM transactions
+        WHERE type IN ('income', 'expense')
+        UNION
+       SELECT DISTINCT type, category
+         FROM recurrences`,
+    )
+    .all() as Array<{ type: CashflowType; category: string }>;
+
+  const insert = db.prepare(
+    `INSERT INTO custom_categories (id, name, type, position, created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?)
+     ON CONFLICT DO NOTHING`,
+  );
+
+  for (const row of rows) {
+    const suggested = DEFAULT_CATEGORIES[row.type];
+    if (!suggested || suggested.includes(row.category)) continue;
+    if (row.category === TRANSFER_CATEGORY) continue;
+
+    const next = (
+      db
+        .prepare('SELECT COALESCE(MAX(position), -1) + 1 AS next FROM custom_categories WHERE type = ?')
+        .get(row.type) as { next: number }
+    ).next;
+
+    insert.run(randomUUID(), row.category, row.type, next, now, now);
+  }
+}
 
 export function runMigrations(db: DatabaseSync): void {
   const row = db.prepare('PRAGMA user_version').get() as { user_version: number } | undefined;
@@ -168,5 +244,14 @@ export function runMigrations(db: DatabaseSync): void {
       db.exec('ROLLBACK');
       throw error;
     }
+  }
+
+  db.exec('BEGIN');
+  try {
+    adoptExistingCategories(db);
+    db.exec('COMMIT');
+  } catch (error) {
+    db.exec('ROLLBACK');
+    throw error;
   }
 }

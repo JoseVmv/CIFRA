@@ -1,4 +1,5 @@
-import { PERIOD_OPTIONS, useFinance } from '../../context/FinanceContext';
+import { periodOptions, useFinance } from '../../context/FinanceContext';
+import { useT } from '../../i18n';
 import { IconButton } from '../ui/Button';
 import { IconChevronLeft, IconChevronRight } from '../ui/Icons';
 import { cn } from '../../lib/cn';
@@ -21,16 +22,17 @@ export function PeriodSelector() {
     canNavigate,
     isAtCurrentWindow,
   } = useFinance();
+  const t = useT();
 
   return (
     <div className="flex flex-wrap items-center gap-2">
       <div className="-mx-4 overflow-x-auto px-4 sm:mx-0 sm:overflow-visible sm:px-0">
         <div
           role="radiogroup"
-          aria-label="Período analisado"
+          aria-label={t.period.label}
           className="inline-flex items-center gap-0.5 rounded-xl border border-line bg-surface-inset p-0.5"
         >
-          {PERIOD_OPTIONS.map((option) => {
+          {periodOptions(t).map((option) => {
             const selected = option.key === period;
             return (
               <button
@@ -57,7 +59,7 @@ export function PeriodSelector() {
       {canNavigate && (
         <div className="flex items-center gap-0.5 rounded-xl border border-line bg-surface p-0.5">
           <IconButton
-            label="Período anterior"
+            label={t.period.previous}
             className="size-8 rounded-[10px]"
             onClick={goToPreviousWindow}
           >
@@ -72,7 +74,7 @@ export function PeriodSelector() {
           </span>
 
           <IconButton
-            label="Próximo período"
+            label={t.period.next}
             className="size-8 rounded-[10px]"
             disabled={isAtCurrentWindow}
             onClick={goToNextWindow}
@@ -88,7 +90,7 @@ export function PeriodSelector() {
           onClick={goToToday}
           className="h-8 rounded-xl border border-line px-3 text-[13px] font-medium text-ink-2 transition-colors hover:bg-surface-inset hover:text-ink"
         >
-          Hoje
+          {t.common.today}
         </button>
       )}
     </div>
@@ -98,6 +100,6 @@ export function PeriodSelector() {
 /** Rótulo completo do que está sendo mostrado — usado nos cabeçalhos dos cards. */
 export function usePeriodLabel(): string {
   const { period, windowLabel } = useFinance();
-  if (period === 'all') return 'Todo o período';
-  return windowLabel;
+  const t = useT();
+  return period === 'all' ? t.period.all : windowLabel;
 }

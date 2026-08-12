@@ -5,6 +5,7 @@ import { IconPlus, IconTrash } from '../ui/Icons';
 import { Skeleton } from '../ui/States';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
+import { useT } from '../../i18n';
 import { api, ApiError } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
 import { cn } from '../../lib/cn';
@@ -28,6 +29,7 @@ function message(error: unknown, fallback: string): string {
 export function AccountsPanel() {
   const { accounts, refresh } = useFinance();
   const { notify } = useToast();
+  const t = useT();
 
   const [creating, setCreating] = useState(false);
   const [draftName, setDraftName] = useState('');
@@ -58,7 +60,7 @@ export function AccountsPanel() {
       refresh();
       draftRef.current?.focus();
     } catch (error) {
-      notify(message(error, 'Não foi possível adicionar a conta.'), 'error');
+      notify(message(error, t.accounts.addFailed), 'error');
     } finally {
       setSaving(false);
     }
@@ -77,8 +79,7 @@ export function AccountsPanel() {
     <div className="flex flex-col gap-2">
       {items.length === 0 && !creating && (
         <p className="rounded-xl bg-surface-inset px-4 py-3 text-[13px] text-ink-2">
-          Nenhuma conta ainda. Adicione seus bancos e carteiras — o saldo inicial passa a ser a
-          soma deles.
+          {t.accounts.emptyNote}
         </p>
       )}
 
@@ -94,8 +95,8 @@ export function AccountsPanel() {
             ref={draftRef}
             value={draftName}
             maxLength={MAX_NAME_LENGTH}
-            placeholder="Nome do banco ou carteira"
-            aria-label="Nome da nova conta"
+            placeholder={t.accounts.namePlaceholder}
+            aria-label={t.accounts.newNameLabel}
             autoComplete="off"
             onChange={(event) => setDraftName(event.target.value)}
             onKeyDown={(event) => {
@@ -111,7 +112,7 @@ export function AccountsPanel() {
             <CurrencyInput
               valueCents={draftCents}
               onChangeCents={setDraftCents}
-              aria-label="Saldo da nova conta"
+              aria-label={t.accounts.newBalanceLabel}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
                   event.preventDefault();
@@ -126,7 +127,7 @@ export function AccountsPanel() {
             loading={saving}
             onClick={() => void addAccount()}
           >
-            Adicionar
+            {t.common.add}
           </Button>
         </div>
       )}
@@ -138,17 +139,17 @@ export function AccountsPanel() {
           icon={<IconPlus />}
           onClick={() => (creating ? void addAccount() : setCreating(true))}
         >
-          {creating ? 'Salvar conta' : 'Adicionar conta'}
+          {creating ? t.accounts.saveAccount : t.accounts.addAccount}
         </Button>
 
         <div className="flex flex-wrap items-baseline gap-x-5 gap-y-1 text-[13px] text-ink-3">
           <p className="flex items-baseline gap-2">
-            Saldo inicial
+            {t.accounts.initialTotal}
             <strong className="tnum font-semibold text-ink-2">{formatCurrency(totalCents)}</strong>
           </p>
           {items.length > 0 && (
             <p className="flex items-baseline gap-2">
-              Hoje
+              {t.accounts.todayTotal}
               <strong className="tnum text-base font-semibold text-ink">
                 {formatCurrency(currentTotalCents)}
               </strong>
@@ -163,6 +164,7 @@ export function AccountsPanel() {
 function AccountRow({ account }: { account: Account }) {
   const { refresh } = useFinance();
   const { notify } = useToast();
+  const t = useT();
 
   const [name, setName] = useState(account.name);
   const [balanceCents, setBalanceCents] = useState(account.balanceCents);
@@ -184,7 +186,7 @@ function AccountRow({ account }: { account: Account }) {
     } catch (error) {
       setName(account.name);
       setBalanceCents(account.balanceCents);
-      notify(message(error, 'Não foi possível salvar a conta.'), 'error');
+      notify(message(error, t.accounts.saveFailed), 'error');
     } finally {
       setBusy(false);
     }
@@ -194,10 +196,10 @@ function AccountRow({ account }: { account: Account }) {
     setBusy(true);
     try {
       await api.deleteAccount(account.id);
-      notify(`Conta "${account.name}" removida`);
+      notify(t.accounts.removed(account.name));
       refresh();
     } catch (error) {
-      notify(message(error, 'Não foi possível remover a conta.'), 'error');
+      notify(message(error, t.accounts.removeFailed), 'error');
     } finally {
       setBusy(false);
     }
@@ -212,7 +214,7 @@ function AccountRow({ account }: { account: Account }) {
         <input
           value={name}
           maxLength={MAX_NAME_LENGTH}
-          aria-label={`Nome da conta ${account.name}`}
+          aria-label={t.accounts.nameLabel(account.name)}
           autoComplete="off"
           onChange={(event) => setName(event.target.value)}
           onBlur={() => void save()}
@@ -223,13 +225,13 @@ function AccountRow({ account }: { account: Account }) {
           <CurrencyInput
             valueCents={balanceCents}
             onChangeCents={setBalanceCents}
-            aria-label={`Saldo inicial da conta ${account.name}`}
+            aria-label={t.accounts.balanceLabel(account.name)}
             onBlur={() => void save()}
             onKeyDown={(event) => event.key === 'Enter' && event.currentTarget.blur()}
           />
         </div>
         <IconButton
-          label={`Remover conta ${account.name}`}
+          label={t.accounts.removeLabel(account.name)}
           disabled={busy}
           className="shrink-0 hover:bg-expense-soft hover:text-expense-text"
           onClick={() => void remove()}
@@ -240,7 +242,7 @@ function AccountRow({ account }: { account: Account }) {
 
       {moved && (
         <p className="pr-[3.25rem] text-right text-xs text-ink-3">
-          Saldo hoje{' '}
+          {t.accounts.balanceToday}{' '}
           <strong className="tnum font-semibold text-ink-2">
             {formatCurrency(account.currentBalanceCents)}
           </strong>

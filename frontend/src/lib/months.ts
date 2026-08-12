@@ -1,4 +1,4 @@
-import { todayIso } from './format';
+import { formatMonthName, todayIso } from './format';
 import type { PeriodKey } from '../types/api';
 
 /**
@@ -75,33 +75,25 @@ export function isCurrentWindow(period: PeriodKey, anchor: string): boolean {
   return window === null || window.to >= todayIso();
 }
 
-const monthLongFormatter = new Intl.DateTimeFormat('pt-BR', { month: 'long' });
-const monthShortFormatter = new Intl.DateTimeFormat('pt-BR', { month: 'short' });
-
-function capitalize(value: string): string {
-  return value.charAt(0).toUpperCase() + value.slice(1);
-}
-
-function monthName(iso: string, style: 'long' | 'short'): string {
-  const date = toUtc(iso);
-  const formatter = style === 'long' ? monthLongFormatter : monthShortFormatter;
-  return capitalize(formatter.format(date).replace('.', ''));
-}
-
-/** "Agosto 2026", "Jun – Ago 2026", "2026" ou "Todo o período". */
+/**
+ * "Agosto 2026", "Jun – Ago 2026", "2026" — o nome do mês segue o idioma.
+ *
+ * O rótulo de "Todo o período" não sai daqui: ele é texto puro do dicionário e
+ * fica com quem chama, para esta função continuar sendo só aritmética de datas.
+ */
 export function periodWindowLabel(period: PeriodKey, anchor: string): string {
-  if (period === 'all') return 'Todo o período';
+  if (period === 'all') return '';
   if (period === 'year') return anchor.slice(0, 4);
 
   const window = periodWindow(period, anchor);
   if (!window) return '';
 
   const endYear = window.to.slice(0, 4);
-  if (period === 'month') return `${monthName(window.from, 'long')} ${endYear}`;
+  if (period === 'month') return `${formatMonthName(window.from, 'long')} ${endYear}`;
 
   const startYear = window.from.slice(0, 4);
-  const start = monthName(window.from, 'short');
-  const end = monthName(window.to, 'short');
+  const start = formatMonthName(window.from, 'short');
+  const end = formatMonthName(window.to, 'short');
 
   return startYear === endYear
     ? `${start} – ${end} ${endYear}`

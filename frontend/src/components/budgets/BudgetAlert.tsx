@@ -4,6 +4,8 @@ import { IconAlert, IconClose } from '../ui/Icons';
 import { IconButton } from '../ui/Button';
 import { useFinance } from '../../context/FinanceContext';
 import { useApiResource } from '../../hooks/useApiResource';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
 import { api } from '../../lib/api';
 import { formatCurrency } from '../../lib/format';
 import type { BudgetUsage } from '../../types/api';
@@ -31,6 +33,8 @@ function readDismissed(): string[] {
 /** Balão vermelho no painel quando algum limite passa de 90% do valor definido. */
 export function BudgetAlert() {
   const { anchor, version } = useFinance();
+  const t = useT();
+  const { language } = useLanguage();
   const budgets = useApiResource(() => api.listBudgets(anchor), [anchor, version]);
   const [dismissed, setDismissed] = useState<string[]>(readDismissed);
 
@@ -58,7 +62,9 @@ export function BudgetAlert() {
 
   return (
     <div className="flex flex-col gap-2">
-      {alerts.map((budget) => (
+      {alerts.map((budget) => {
+        const name = categoryLabel(budget.category, language);
+        return (
         <div
           key={budget.id}
           role="alert"
@@ -71,33 +77,34 @@ export function BudgetAlert() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-expense-text">
               {budget.status === 'exceeded'
-                ? `Você passou do limite de ${budget.category}`
-                : `Você já usou ${Math.round(budget.percent)}% do limite de ${budget.category}`}
+                ? t.budgets.alertExceeded(name)
+                : t.budgets.alertWarning(Math.round(budget.percent), name)}
             </p>
             <p className="mt-0.5 text-[13px] text-ink-2">
-              {formatCurrency(budget.spentCents)} de {formatCurrency(budget.limitCents)}
+              {formatCurrency(budget.spentCents)} {t.common.of} {formatCurrency(budget.limitCents)}
               {budget.remainingCents >= 0
-                ? ` · restam ${formatCurrency(budget.remainingCents)}`
-                : ` · ${formatCurrency(-budget.remainingCents)} acima do planejado`}
+                ? t.budgets.alertRemaining(formatCurrency(budget.remainingCents))
+                : t.budgets.alertOver(formatCurrency(-budget.remainingCents))}
               {'. '}
               <Link
                 to="/analises"
                 className="font-medium text-expense-text underline-offset-4 hover:underline"
               >
-                Ver limites
+                {t.budgets.seeBudgets}
               </Link>
             </p>
           </div>
 
           <IconButton
-            label={`Fechar aviso sobre ${budget.category}`}
+            label={t.budgets.dismissAlert(name)}
             className="-mt-1 -mr-1.5 shrink-0 hover:bg-expense/10"
             onClick={() => dismiss(budget)}
           >
             <IconClose />
           </IconButton>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }

@@ -8,9 +8,11 @@ import { Button } from '../components/ui/Button';
 import { Select } from '../components/ui/Field';
 import { EmptyState, ErrorState, Skeleton } from '../components/ui/States';
 import { IconDownload, IconEmpty, IconPlus, IconSearch } from '../components/ui/Icons';
-import { PERIOD_OPTIONS, useFinance } from '../context/FinanceContext';
+import { periodOptions, useFinance } from '../context/FinanceContext';
 import { useTransactionDialog } from '../context/TransactionDialogContext';
 import { useApiResource } from '../hooks/useApiResource';
+import { useLanguage, useT } from '../i18n';
+import { categoryLabel, compareByLabel } from '../i18n/categories';
 import { api } from '../lib/api';
 import type { PeriodKey, TransactionType } from '../types/api';
 
@@ -36,6 +38,8 @@ const INITIAL_FILTERS: Filters = {
 export function TransactionsPage() {
   const { version, anchor, categories, settings, accounts } = useFinance();
   const { openNew } = useTransactionDialog();
+  const t = useT();
+  const { language, locale } = useLanguage();
 
   // O filtro por conta só aparece quando o usuário usa múltiplas contas.
   const showAccountFilter = (settings?.useMultipleAccounts ?? false) && (accounts?.length ?? 0) > 0;
@@ -90,8 +94,8 @@ export function TransactionsPage() {
     // Transferência tem categoria própria e fixa: não entra na lista.
     if (filters.type === 'income' || filters.type === 'expense') return categories[filters.type];
     const all = new Set([...categories.income, ...categories.expense]);
-    return [...all].sort((a, b) => a.localeCompare(b, 'pt-BR'));
-  }, [categories, filters.type]);
+    return [...all].sort((a, b) => compareByLabel(a, b, language, locale));
+  }, [categories, filters.type, language, locale]);
 
   const hasFilters =
     filters.search !== '' ||
@@ -116,8 +120,8 @@ export function TransactionsPage() {
   return (
     <>
       <PageHeader
-        title="Transações"
-        description="Todo o histórico, com busca e filtros."
+        title={t.transactions.title}
+        description={t.transactions.subtitle}
         actions={
           <>
             <Button
@@ -125,10 +129,10 @@ export function TransactionsPage() {
               icon={<IconDownload />}
               onClick={() => setExportOpen(true)}
             >
-              Exportar
+              {t.transactions.export}
             </Button>
             <Button variant="primary" icon={<IconPlus />} onClick={() => openNew()}>
-              Nova transação
+              {t.nav.newTransaction}
             </Button>
           </>
         }
@@ -145,56 +149,56 @@ export function TransactionsPage() {
                 type="search"
                 value={searchInput}
                 onChange={(event) => setSearchInput(event.target.value)}
-                placeholder="Buscar por descrição…"
-                aria-label="Buscar transações"
+                placeholder={t.transactions.searchPlaceholder}
+                aria-label={t.transactions.searchLabel}
                 maxLength={120}
                 className="h-11 w-full rounded-xl border border-line bg-surface pr-3.5 pl-10 text-sm text-ink placeholder:text-ink-3 transition-colors duration-150 hover:border-line-strong focus:border-accent focus:outline-none"
               />
             </div>
 
             <Select
-              aria-label="Filtrar por tipo"
+              aria-label={t.transactions.filterType}
               value={filters.type}
               onChange={(event) => update('type', event.target.value as TransactionType | '')}
             >
-              <option value="">Todos os tipos</option>
-              <option value="income">Somente entradas</option>
-              <option value="expense">Somente saídas</option>
-              <option value="transfer">Somente transferências</option>
+              <option value="">{t.transactions.allTypes}</option>
+              <option value="income">{t.transactions.onlyIncome}</option>
+              <option value="expense">{t.transactions.onlyExpense}</option>
+              <option value="transfer">{t.transactions.onlyTransfer}</option>
             </Select>
 
             <Select
-              aria-label="Filtrar por categoria"
+              aria-label={t.transactions.filterCategory}
               value={filters.category}
               onChange={(event) => update('category', event.target.value)}
             >
-              <option value="">Todas as categorias</option>
+              <option value="">{t.transactions.allCategories}</option>
               {categoryOptions.map((category) => (
                 <option key={category} value={category}>
-                  {category}
+                  {categoryLabel(category, language)}
                 </option>
               ))}
             </Select>
 
             <Select
-              aria-label="Filtrar por período"
+              aria-label={t.transactions.filterPeriod}
               value={filters.period}
               onChange={(event) => update('period', event.target.value as PeriodKey)}
             >
-              {PERIOD_OPTIONS.map((option) => (
+              {periodOptions(t).map((option) => (
                 <option key={option.key} value={option.key}>
-                  {option.key === 'all' ? 'Todo o período' : option.label}
+                  {option.label}
                 </option>
               ))}
             </Select>
 
             {showAccountFilter && (
               <Select
-                aria-label="Filtrar por conta"
+                aria-label={t.transactions.filterAccount}
                 value={filters.accountId}
                 onChange={(event) => update('accountId', event.target.value)}
               >
-                <option value="">Todas as contas</option>
+                <option value="">{t.transactions.allAccounts}</option>
                 {(accounts ?? []).map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.name}
@@ -207,16 +211,14 @@ export function TransactionsPage() {
           {hasFilters && (
             <div className="mt-3 flex items-center justify-between gap-4 border-t border-line pt-3">
               <p className="text-[13px] text-ink-3">
-                {total === 0
-                  ? 'Nenhum resultado'
-                  : `${total} ${total === 1 ? 'transação encontrada' : 'transações encontradas'}`}
+                {total === 0 ? t.transactions.noResults : t.transactions.resultCount(total)}
               </p>
               <button
                 type="button"
                 onClick={clearFilters}
                 className="text-[13px] font-medium text-ink-2 underline-offset-4 hover:text-ink hover:underline"
               >
-                Limpar filtros
+                {t.transactions.clearFilters}
               </button>
             </div>
           )}
@@ -235,22 +237,22 @@ export function TransactionsPage() {
             hasFilters ? (
               <EmptyState
                 icon={<IconSearch />}
-                title="Nenhuma transação encontrada"
-                description="Tente ajustar a busca, o período ou os filtros de tipo e categoria."
+                title={t.transactions.notFoundTitle}
+                description={t.transactions.notFoundDescription}
                 action={
                   <Button variant="secondary" onClick={clearFilters}>
-                    Limpar filtros
+                    {t.transactions.clearFilters}
                   </Button>
                 }
               />
             ) : (
               <EmptyState
                 icon={<IconEmpty />}
-                title="Nenhuma transação ainda"
-                description="Adicione sua primeira entrada ou saída para começar a acompanhar suas finanças."
+                title={t.transactions.emptyTitle}
+                description={t.transactions.emptyDescription}
                 action={
                   <Button variant="primary" icon={<IconPlus />} onClick={() => openNew()}>
-                    Nova transação
+                    {t.nav.newTransaction}
                   </Button>
                 }
               />
@@ -261,7 +263,7 @@ export function TransactionsPage() {
               {(canLoadMore || items.length > PAGE_SIZE) && (
                 <div className="flex items-center justify-between gap-4 px-5 py-4 sm:px-6">
                   <p className="text-[13px] text-ink-3">
-                    Mostrando {items.length} de {total}
+                    {t.transactions.showing(items.length, total)}
                   </p>
                   {canLoadMore && (
                     <Button
@@ -270,7 +272,7 @@ export function TransactionsPage() {
                       loading={resource.isRefreshing}
                       onClick={() => setLimit((current) => Math.min(current + PAGE_SIZE, MAX_ITEMS))}
                     >
-                      Carregar mais
+                      {t.common.loadMore}
                     </Button>
                   )}
                 </div>

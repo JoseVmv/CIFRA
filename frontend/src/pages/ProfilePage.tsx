@@ -9,16 +9,16 @@ import { Skeleton } from '../components/ui/States';
 import { useFinance } from '../context/FinanceContext';
 import { useToast } from '../context/ToastContext';
 import { useApiResource } from '../hooks/useApiResource';
+import { useT } from '../i18n';
 import { api, ApiError } from '../lib/api';
-import { formatCurrency } from '../lib/format';
+import { currencySymbol, formatCurrency } from '../lib/format';
 
 export function ProfilePage() {
+  const t = useT();
+
   return (
     <>
-      <PageHeader
-        title="Usuário"
-        description="Suas informações e o ponto de partida do seu saldo."
-      />
+      <PageHeader title={t.profile.title} description={t.profile.subtitle} />
       <div className="flex max-w-2xl flex-col gap-4 sm:gap-6">
         <IdentityCard />
         <InitialBalanceCard />
@@ -30,6 +30,7 @@ export function ProfilePage() {
 function IdentityCard() {
   const { settings, refresh } = useFinance();
   const { notify } = useToast();
+  const t = useT();
 
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
@@ -45,13 +46,10 @@ function IdentityCard() {
     setSaving(true);
     try {
       await api.updateSettings({ displayName: name.trim() });
-      notify('Nome atualizado');
+      notify(t.profile.nameSaved);
       refresh();
     } catch (error) {
-      notify(
-        error instanceof ApiError ? error.message : 'Não foi possível salvar o nome.',
-        'error',
-      );
+      notify(error instanceof ApiError ? error.message : t.profile.nameFailed, 'error');
     } finally {
       setSaving(false);
     }
@@ -59,19 +57,19 @@ function IdentityCard() {
 
   return (
     <Card>
-      <CardHeader title="Seu nome" description="Aparece na saudação do painel. Opcional." />
+      <CardHeader title={t.profile.nameTitle} description={t.profile.nameDescription} />
       <form onSubmit={handleSubmit} className="px-5 pt-5 pb-6 sm:px-6">
         {!settings ? (
           <Skeleton className="h-11 w-full" />
         ) : (
-          <Field label="Como devemos te chamar">
+          <Field label={t.profile.nameLabel}>
             {({ id }) => (
               <TextInput
                 id={id}
                 value={name}
                 maxLength={60}
                 autoComplete="given-name"
-                placeholder="Seu nome"
+                placeholder={t.profile.namePlaceholder}
                 onChange={(event) => setName(event.target.value)}
               />
             )}
@@ -79,7 +77,7 @@ function IdentityCard() {
         )}
         <div className="mt-5 flex justify-end">
           <Button type="submit" variant="primary" loading={saving} disabled={unchanged}>
-            {unchanged ? 'Salvo' : 'Salvar'}
+            {unchanged ? t.common.saved : t.common.save}
           </Button>
         </div>
       </form>
@@ -90,6 +88,7 @@ function IdentityCard() {
 function InitialBalanceCard() {
   const { settings, refresh, period, anchor, version } = useFinance();
   const { notify } = useToast();
+  const t = useT();
   const summary = useApiResource(
     () => api.getSummary(period, anchor),
     [period, anchor, version],
@@ -126,14 +125,10 @@ function InitialBalanceCard() {
     setError(null);
     try {
       await api.updateSettings({ initialBalanceCents: manualCents });
-      notify('Saldo inicial atualizado');
+      notify(t.profile.balanceSaved);
       refresh();
     } catch (cause) {
-      setError(
-        cause instanceof ApiError
-          ? cause.message
-          : 'Não foi possível salvar o saldo inicial. Tente novamente.',
-      );
+      setError(cause instanceof ApiError ? cause.message : t.profile.balanceFailed);
     } finally {
       setSaving(false);
     }
@@ -145,10 +140,7 @@ function InitialBalanceCard() {
       await api.updateSettings({ useMultipleAccounts: enabled });
       refresh();
     } catch (cause) {
-      notify(
-        cause instanceof ApiError ? cause.message : 'Não foi possível alterar a opção.',
-        'error',
-      );
+      notify(cause instanceof ApiError ? cause.message : t.profile.toggleFailed, 'error');
     } finally {
       setTogglingAccounts(false);
     }
@@ -157,8 +149,8 @@ function InitialBalanceCard() {
   return (
     <Card>
       <CardHeader
-        title="Saldo inicial"
-        description="Quanto você tinha antes de começar a registrar transações. É o ponto de partida do cálculo."
+        title={t.profile.initialBalance}
+        description={t.profile.initialBalanceDescription}
       />
       <div className="px-5 pt-5 pb-6 sm:px-6">
         {!settings ? (
@@ -167,19 +159,17 @@ function InitialBalanceCard() {
           <form onSubmit={handleSubmit}>
             <fieldset disabled={useAccounts} className="transition-opacity disabled:opacity-45">
               <Field
-                label="Valor"
-                hint={
-                  useAccounts
-                    ? 'Desativado: o saldo vem da soma das contas abaixo.'
-                    : 'Se você está no vermelho, marque a opção de saldo negativo.'
-                }
+                label={t.profile.amount}
+                hint={useAccounts ? t.profile.disabledByAccounts : t.profile.negativeHint}
               >
                 {({ id }) => (
                   <div className="flex flex-col gap-3">
                     <CurrencyInput
                       id={id}
                       size="lg"
-                      prefix={negative ? '− R$' : 'R$'}
+                      // O sinal de menos entra no prefixo: é a única pista de
+                      // que o valor digitado conta como dívida.
+                      prefix={negative ? `− ${currencySymbol()}` : undefined}
                       valueCents={cents}
                       onChangeCents={setCents}
                     />
@@ -190,7 +180,7 @@ function InitialBalanceCard() {
                         onChange={(event) => setNegative(event.target.checked)}
                         className="size-4 accent-[var(--accent)]"
                       />
-                      Saldo negativo (dívida)
+                      {t.profile.negativeLabel}
                     </label>
                   </div>
                 )}
@@ -199,7 +189,7 @@ function InitialBalanceCard() {
               {!useAccounts && (
                 <div className="mt-5 flex justify-end">
                   <Button type="submit" variant="primary" loading={saving} disabled={unchanged}>
-                    {unchanged ? 'Salvo' : 'Salvar'}
+                    {unchanged ? t.common.saved : t.common.save}
                   </Button>
                 </div>
               )}
@@ -218,10 +208,9 @@ function InitialBalanceCard() {
                 className="mt-0.5 size-4 accent-[var(--accent)]"
               />
               <span>
-                <span className="block text-sm font-medium text-ink">Usar múltiplas contas</span>
+                <span className="block text-sm font-medium text-ink">{t.profile.useAccounts}</span>
                 <span className="mt-0.5 block text-[13px] text-ink-3">
-                  Separe seu dinheiro por banco ou carteira. O saldo inicial passa a ser a soma
-                  de todas as contas.
+                  {t.profile.useAccountsDescription}
                 </span>
               </span>
             </label>
@@ -236,11 +225,7 @@ function InitialBalanceCard() {
 
         {projectedBalance !== null && (
           <p className="mt-5 rounded-xl bg-surface-inset px-4 py-3 text-[13px] text-ink-2">
-            Com esse saldo inicial, seu saldo atual é{' '}
-            <strong className="tnum font-semibold text-ink">
-              {formatCurrency(projectedBalance)}
-            </strong>
-            . Nenhuma transação é alterada ou apagada.
+            {t.profile.projection(formatCurrency(projectedBalance))}
           </p>
         )}
 

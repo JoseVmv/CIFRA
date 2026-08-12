@@ -6,6 +6,8 @@ import type {
   BudgetInput,
   BudgetUsage,
   CategoriesResponse,
+  Category,
+  CategoryInput,
   InstallmentInput,
   Paginated,
   PeriodKey,
@@ -42,8 +44,21 @@ export class ApiError extends Error {
   }
 }
 
-const OFFLINE_MESSAGE =
-  'Não foi possível falar com o servidor. Verifique se o backend está rodando.';
+/**
+ * As duas mensagens que nascem aqui, e não no servidor: falha de rede e um erro
+ * sem mensagem própria. Ficam em estado de módulo pelo mesmo motivo do locale em
+ * `format.ts` — `request` não é um componente e não tem como ler um contexto.
+ * As demais mensagens de erro vêm prontas do backend.
+ */
+export const messages = {
+  offline: 'Não foi possível falar com o servidor. Verifique se o backend está rodando.',
+  generic: 'Algo deu errado. Tente novamente.',
+};
+
+export function setApiMessages(next: { offline: string; generic: string }): void {
+  messages.offline = next.offline;
+  messages.generic = next.generic;
+}
 
 function buildQuery(params: object | undefined): string {
   if (!params) return '';
@@ -65,7 +80,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
     });
   } catch (error) {
     console.error('[api] falha de rede', path, error);
-    throw new ApiError(0, 'NETWORK_ERROR', OFFLINE_MESSAGE);
+    throw new ApiError(0, 'NETWORK_ERROR', messages.offline);
   }
 
   if (response.status === 204) {
@@ -85,11 +100,7 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
   if (!response.ok) {
     const error = (payload as { error?: { code?: string; message?: string } } | null)?.error;
     console.error('[api] erro', response.status, path, payload);
-    throw new ApiError(
-      response.status,
-      error?.code ?? 'UNKNOWN',
-      error?.message ?? 'Algo deu errado. Tente novamente.',
-    );
+    throw new ApiError(response.status, error?.code ?? 'UNKNOWN', error?.message ?? messages.generic);
   }
 
   return payload as T;
@@ -172,6 +183,20 @@ export const api = {
 
   getCategories: () => request<CategoriesResponse>('/categories'),
 
+  createCategory: (input: CategoryInput) =>
+    request<Category>('/categories', { method: 'POST', body: JSON.stringify(input) }),
+
+  /** Só o nome muda — e ele muda em todo o histórico junto, no servidor. */
+  renameCategory: (id: string, name: string) =>
+    request<Category>(`/categories/${id}`, { method: 'PUT', body: JSON.stringify({ name }) }),
+
+  /**
+   * `reassignTo` é obrigatório quando a categoria ainda classifica algo: sem
+   * ele a API responde 409 em vez de deixar lançamentos órfãos.
+   */
+  deleteCategory: (id: string, reassignTo?: string) =>
+    request<void>(`/categories/${id}${buildQuery({ reassignTo })}`, { method: 'DELETE' }),
+
   listAccounts: () => request<AccountsResponse>('/accounts'),
 
   createAccount: (input: AccountInput) =>
@@ -182,7 +207,7 @@ export const api = {
 
   deleteAccount: (id: string) => request<void>(`/accounts/${id}`, { method: 'DELETE' }),
 
-  /** Apaga transações e configurações. Irreversível — sempre confirme antes. */
+  /** Apaga transações, categorias e configurações. Irreversível — confirme antes. */
   resetAllData: () =>
     request<{ deletedTransactions: number; clearedSettings: boolean }>('/data', {
       method: 'DELETE',

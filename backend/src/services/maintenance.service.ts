@@ -8,6 +8,7 @@ export interface ResetResult {
   deletedAccounts: number;
   deletedBudgets: number;
   deletedRecurrences: number;
+  deletedCategories: number;
   clearedSettings: boolean;
 }
 
@@ -15,8 +16,9 @@ export type MaintenanceService = ReturnType<typeof createMaintenanceService>;
 
 export function createMaintenanceService(db: DatabaseSync) {
   /**
-   * Apaga tudo — transações, contas, recorrências e configurações — numa única
-   * transação. O schema permanece; o app volta ao estado de primeira execução.
+   * Apaga tudo — transações, contas, recorrências, categorias personalizadas e
+   * configurações — numa única transação. O schema permanece; o app volta ao
+   * estado de primeira execução.
    */
   function resetAll(): ResetResult {
     db.exec('BEGIN');
@@ -25,6 +27,7 @@ export function createMaintenanceService(db: DatabaseSync) {
       const accounts = db.prepare('DELETE FROM accounts').run();
       const budgets = db.prepare('DELETE FROM budgets').run();
       const recurrences = db.prepare('DELETE FROM recurrences').run();
+      const categories = db.prepare('DELETE FROM custom_categories').run();
       const settings = db.prepare('DELETE FROM settings').run();
       db.exec('COMMIT');
       return {
@@ -32,6 +35,7 @@ export function createMaintenanceService(db: DatabaseSync) {
         deletedAccounts: Number(accounts.changes),
         deletedBudgets: Number(budgets.changes),
         deletedRecurrences: Number(recurrences.changes),
+        deletedCategories: Number(categories.changes),
         clearedSettings: Number(settings.changes) > 0,
       };
     } catch (error) {

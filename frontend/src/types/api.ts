@@ -86,6 +86,18 @@ export interface AccountInput {
   balanceCents: number;
 }
 
+/** Idiomas em que a interface é oferecida — espelha o backend. */
+export type Language = 'pt' | 'en' | 'es';
+
+/**
+ * Moedas em que os valores podem ser exibidos — espelha o backend.
+ *
+ * A escolha é de exibição: os centavos guardados nunca mudam, e trocar de moeda
+ * não converte nada. É o mesmo número com outro símbolo.
+ */
+export const CURRENCIES = ['BRL', 'USD'] as const;
+export type Currency = (typeof CURRENCIES)[number];
+
 export interface Settings {
   /** Saldo inicial efetivo: soma das contas, ou o valor digitado. */
   initialBalanceCents: number;
@@ -93,7 +105,10 @@ export interface Settings {
   useMultipleAccounts: boolean;
   accountsTotalCents: number;
   displayName: string;
-  currency: string;
+  /** Moeda em que os valores são exibidos. Não converte nada — só o símbolo. */
+  currency: Currency;
+  /** Idioma da interface. Fica no servidor para valer no PC e no celular. */
+  language: Language;
   updatedAt: string;
 }
 
@@ -101,6 +116,8 @@ export interface SettingsInput {
   initialBalanceCents?: number;
   useMultipleAccounts?: boolean;
   displayName?: string;
+  language?: Language;
+  currency?: Currency;
 }
 
 export type PeriodKey = 'month' | '3m' | '6m' | 'year' | 'all';
@@ -241,9 +258,32 @@ export interface RecurrenceInput {
   active?: boolean;
 }
 
+/**
+ * Categoria criada pelo usuário. As sugeridas não têm registro: elas são
+ * constantes, e a interface as traduz pelo nome canônico.
+ */
+export interface Category {
+  id: string;
+  name: string;
+  type: CashflowType;
+  position: number;
+  /** Quantos lançamentos e recorrências usam este nome hoje. */
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CategoryInput {
+  name: string;
+  type: CashflowType;
+}
+
 export interface CategoriesResponse {
+  /** Nomes canônicos prontos para os seletores: sugeridas + personalizadas. */
   income: string[];
   expense: string[];
+  /** Só as personalizadas, com id — é o que a tela de ajustes gerencia. */
+  custom: Category[];
 }
 
 export interface TransactionQuery {

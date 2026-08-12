@@ -5,6 +5,7 @@ import type { ReactNode } from 'react';
 import { TransactionDialog } from './TransactionDialog';
 import { FinanceProvider } from '../../context/FinanceContext';
 import { ToastProvider } from '../../context/ToastContext';
+import { I18nProvider } from '../../i18n';
 import { api } from '../../lib/api';
 
 vi.mock('../../lib/api', async () => {
@@ -35,9 +36,11 @@ const mockedApi = vi.mocked(api);
 
 function renderDialog(node: ReactNode) {
   return render(
-    <ToastProvider>
-      <FinanceProvider>{node}</FinanceProvider>
-    </ToastProvider>,
+    <I18nProvider>
+      <ToastProvider>
+        <FinanceProvider>{node}</FinanceProvider>
+      </ToastProvider>
+    </I18nProvider>,
   );
 }
 
@@ -54,11 +57,13 @@ beforeEach(() => {
     accountsTotalCents: 0,
     displayName: '',
     currency: 'BRL',
+    language: 'pt',
     updatedAt: new Date().toISOString(),
   });
   mockedApi.getCategories.mockResolvedValue({
     income: ['Salário', 'Freelance'],
     expense: ['Alimentação', 'Transporte'],
+    custom: [],
   });
   mockedApi.listAccounts.mockResolvedValue({
     items: [],
@@ -77,6 +82,7 @@ function withAccounts(names: string[]): void {
     accountsTotalCents: 0,
     displayName: '',
     currency: 'BRL',
+    language: 'pt',
     updatedAt: new Date().toISOString(),
   });
   mockedApi.listAccounts.mockResolvedValue({

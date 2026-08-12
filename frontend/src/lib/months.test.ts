@@ -86,8 +86,13 @@ describe('rótulo da janela', () => {
     expect(periodWindowLabel('3m', '2026-01-15')).toBe('Nov 2025 – Jan 2026');
   });
 
-  it('usa o ano no período anual e um texto fixo em "Tudo"', () => {
+  it('usa o ano no período anual', () => {
     expect(periodWindowLabel('year', '2026-08-09')).toBe('2026');
-    expect(periodWindowLabel('all', '2026-08-09')).toBe('Todo o período');
+  });
+
+  // "Tudo" não tem janela para nomear: o rótulo é texto puro e vem do
+  // dicionário, para esta função continuar sendo só aritmética de datas.
+  it('devolve vazio em "Tudo", que não tem janela', () => {
+    expect(periodWindowLabel('all', '2026-08-09')).toBe('');
   });
 });

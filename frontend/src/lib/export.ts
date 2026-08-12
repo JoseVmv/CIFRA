@@ -6,37 +6,24 @@
  * são a entrega em si.
  */
 
+import { categoryLabel } from '../i18n/categories';
+import type { Language } from '../i18n';
+import type { Dictionary } from '../i18n/pt';
 import { formatCurrency, formatFullDate } from './format';
-import type { Transaction, TransactionType } from '../types/api';
+import type { Currency, Transaction, TransactionType } from '../types/api';
 
 export type ExportFormat = 'csv-excel' | 'csv-padrao' | 'json' | 'pdf';
 
-export const FORMAT_OPTIONS: ReadonlyArray<{
-  value: ExportFormat;
-  label: string;
-  hint: string;
-}> = [
-  {
-    value: 'csv-excel',
-    label: 'CSV para Excel (;)',
-    hint: 'Abre direto no Excel em português, com acentos e vírgula decimal.',
-  },
-  {
-    value: 'csv-padrao',
-    label: 'CSV padrão (,)',
-    hint: 'Separador vírgula e datas em AAAA-MM-DD. Para Planilhas Google, Numbers e afins.',
-  },
-  {
-    value: 'json',
-    label: 'JSON',
-    hint: 'Todos os campos, com valores em centavos. Bom para backup ou outro programa.',
-  },
-  {
-    value: 'pdf',
-    label: 'PDF / imprimir',
-    hint: 'Abre a janela de impressão com o extrato formatado. Salve como PDF por lá.',
-  },
-];
+export function formatOptions(
+  t: Dictionary,
+): ReadonlyArray<{ value: ExportFormat; label: string; hint: string }> {
+  return [
+    { value: 'csv-excel', label: t.exportDialog.csvExcel, hint: t.exportDialog.csvExcelHint },
+    { value: 'csv-padrao', label: t.exportDialog.csvStandard, hint: t.exportDialog.csvStandardHint },
+    { value: 'json', label: t.exportDialog.json, hint: t.exportDialog.jsonHint },
+    { value: 'pdf', label: t.exportDialog.pdf, hint: t.exportDialog.pdfHint },
+  ];
+}
 
 /** O recorte escolhido, do jeito que ele é descrito no cabeçalho do arquivo. */
 export interface ExportFilters {
@@ -63,6 +50,11 @@ export interface ExportOptions {
   filters: ExportFilters;
   /** Só vale para os CSV: acrescenta uma última linha com os totais. */
   includeTotals: boolean;
+  /** O arquivo sai no idioma da interface — cabeçalhos, tipos e categorias. */
+  t: Dictionary;
+  language: Language;
+  /** Só para registrar a unidade no rodapé; os números já vêm formatados. */
+  currency: Currency;
 }
 
 /**
@@ -128,23 +120,26 @@ const DIALECTS: Record<'csv-excel' | 'csv-padrao', CsvDialect> = {
  * É o que mantém a promessa da coluna: somá-la dá o resultado do período, sem
  * que um dinheiro que só mudou de conta entre na conta duas vezes.
  */
-const CSV_HEADER = [
-  'Data',
-  'Tipo',
-  'Descrição',
-  'Categoria',
-  'Conta',
-  'Valor',
-  'Transferido',
-  'Parcela',
-  'Origem',
-] as const;
+function csvHeader(t: Dictionary): string[] {
+  const f = t.exportFile;
+  return [
+    f.columnDate,
+    f.columnType,
+    f.columnDescription,
+    f.columnCategory,
+    f.columnAccount,
+    f.columnAmount,
+    f.columnTransferred,
+    f.columnInstallment,
+    f.columnOrigin,
+  ];
+}
 
-const TYPE_LABELS: Record<Transaction['type'], string> = {
-  income: 'Entrada',
-  expense: 'Saída',
-  transfer: 'Transferência',
-};
+function typeLabel(type: Transaction['type'], t: Dictionary): string {
+  if (type === 'income') return t.type.income;
+  if (type === 'expense') return t.type.expense;
+  return t.type.transfer;
+}
 
 /** Campos com separador, aspas ou quebra de linha viram texto entre aspas. */
 function escapeCsv(value: string, separator: string): string {
@@ -163,13 +158,15 @@ export function toCsv(format: 'csv-excel' | 'csv-padrao', options: ExportOptions
     return dialect.decimalComma ? plain.replace('.', ',') : plain;
   };
 
+  const { t, language } = options;
+
   const rows = options.transactions.map((transaction) => {
     const transfer = transaction.type === 'transfer';
     return [
       dialect.brDate ? toBrDate(transaction.date) : transaction.date,
-      TYPE_LABELS[transaction.type],
+      typeLabel(transaction.type, t),
       transaction.description,
-      transaction.category,
+      categoryLabel(transaction.category, language),
       transfer
         ? `${transaction.accountName ?? '?'} → ${transaction.transferAccountName ?? '?'}`
         : (transaction.accountName ?? ''),
@@ -178,7 +175,7 @@ export function toCsv(format: 'csv-excel' | 'csv-padrao', options: ExportOptions
       transaction.installmentTotal
         ? `${transaction.installmentNumber}/${transaction.installmentTotal}`
         : '',
-      transaction.recurrenceId ? 'Recorrência' : 'Manual',
+      transaction.recurrenceId ? t.exportFile.originRecurrence : t.exportFile.originManual,
     ];
   });
 
@@ -187,7 +184,7 @@ export function toCsv(format: 'csv-excel' | 'csv-padrao', options: ExportOptions
     rows.push([
       '',
       '',
-      'TOTAL',
+      t.exportFile.total,
       '',
       '',
       amountOf(summary.netCents),
@@ -197,7 +194,7 @@ export function toCsv(format: 'csv-excel' | 'csv-padrao', options: ExportOptions
     ]);
   }
 
-  const lines = [[...CSV_HEADER], ...rows].map((row) =>
+  const lines = [csvHeader(t), ...rows].map((row) =>
     row.map((field) => escapeCsv(field, separator)).join(separator),
   );
 
@@ -212,6 +209,7 @@ export function toJson(options: ExportOptions): string {
     {
       aplicativo: 'CIFRA',
       geradoEm: new Date().toISOString(),
+      moeda: options.currency,
       observacao: 'Todos os valores estão em centavos inteiros.',
       filtros: {
         periodo: options.filters.periodLabel,
@@ -249,12 +247,13 @@ function escapeHtml(value: string): string {
 }
 
 /** As linhas de filtro que valem a pena aparecer no cabeçalho do extrato. */
-function describeFilters(filters: ExportFilters): string[] {
+function describeFilters(filters: ExportFilters, t: Dictionary, language: Language): string[] {
+  const f = t.exportFile;
   const parts = [filters.periodLabel];
-  if (filters.type) parts.push(filters.type === 'income' ? 'somente entradas' : 'somente saídas');
-  if (filters.category) parts.push(`categoria: ${filters.category}`);
-  if (filters.accountName) parts.push(`conta: ${filters.accountName}`);
-  if (filters.search) parts.push(`busca: “${filters.search}”`);
+  if (filters.type) parts.push(filters.type === 'income' ? f.onlyIncome : f.onlyExpense);
+  if (filters.category) parts.push(f.filterCategory(categoryLabel(filters.category, language)));
+  if (filters.accountName) parts.push(f.filterAccount(filters.accountName));
+  if (filters.search) parts.push(f.filterSearch(filters.search));
   return parts;
 }
 
@@ -263,6 +262,7 @@ function describeFilters(filters: ExportFilters): string[] {
  * virar PDF pela própria janela de impressão do navegador.
  */
 export function toPrintableHtml(options: ExportOptions): string {
+  const { t, language } = options;
   const summary = summarize(options.transactions);
   const geradoEm = formatFullDate(new Date().toISOString().slice(0, 10));
 
@@ -275,7 +275,7 @@ export function toPrintableHtml(options: ExportOptions): string {
         ? `${escapeHtml(transaction.accountName ?? '—')} → ${escapeHtml(
             transaction.transferAccountName ?? '—',
           )}`
-        : `${escapeHtml(transaction.category)}${
+        : `${escapeHtml(categoryLabel(transaction.category, language))}${
             transaction.accountName ? ` · ${escapeHtml(transaction.accountName)}` : ''
           }`;
 
@@ -297,16 +297,16 @@ export function toPrintableHtml(options: ExportOptions): string {
 
   const transferido =
     summary.transferCents > 0
-      ? `<div><dt>Transferido</dt><dd class="transferencia">${formatCurrency(
+      ? `<div><dt>${escapeHtml(t.exportFile.columnTransferred)}</dt><dd class="transferencia">${formatCurrency(
           summary.transferCents,
         )}</dd></div>`
       : '';
 
   return `<!doctype html>
-<html lang="pt-BR">
+<html lang="${language}">
 <head>
 <meta charset="utf-8">
-<title>CIFRA — extrato</title>
+<title>CIFRA — ${escapeHtml(t.exportFile.statementTitle)}</title>
 <style>
   @page { margin: 16mm; }
   * { box-sizing: border-box; }
@@ -341,28 +341,34 @@ export function toPrintableHtml(options: ExportOptions): string {
 <body>
   <header>
     <div class="marca">CIFRA</div>
-    <h1>Extrato de transações</h1>
-    <p class="fraco" style="margin:0">${escapeHtml(describeFilters(options.filters).join(' · '))}</p>
+    <h1>${escapeHtml(t.exportFile.statementTitle)}</h1>
+    <p class="fraco" style="margin:0">${escapeHtml(
+      describeFilters(options.filters, t, language).join(' · '),
+    )}</p>
   </header>
 
   <dl class="resumo">
-    <div><dt>Entradas</dt><dd class="entrada">${formatCurrency(summary.incomeCents)}</dd></div>
-    <div><dt>Saídas</dt><dd class="saida">${formatCurrency(summary.expenseCents)}</dd></div>
-    <div><dt>Resultado</dt><dd>${formatCurrency(summary.netCents)}</dd></div>
+    <div><dt>${escapeHtml(t.type.incomePlural)}</dt><dd class="entrada">${formatCurrency(summary.incomeCents)}</dd></div>
+    <div><dt>${escapeHtml(t.type.expensePlural)}</dt><dd class="saida">${formatCurrency(summary.expenseCents)}</dd></div>
+    <div><dt>${escapeHtml(t.charts.result)}</dt><dd>${formatCurrency(summary.netCents)}</dd></div>
     ${transferido}
-    <div><dt>Transações</dt><dd>${summary.count}</dd></div>
+    <div><dt>${escapeHtml(t.exportFile.count)}</dt><dd>${summary.count}</dd></div>
   </dl>
 
   <table>
     <thead>
-      <tr><th>Data</th><th>Descrição</th><th>Categoria</th><th>Valor</th></tr>
+      <tr><th>${escapeHtml(t.exportFile.columnDate)}</th><th>${escapeHtml(
+        t.exportFile.columnDescription,
+      )}</th><th>${escapeHtml(t.exportFile.columnCategory)}</th><th>${escapeHtml(
+        t.exportFile.columnAmount,
+      )}</th></tr>
     </thead>
     <tbody>
 ${rows}
     </tbody>
   </table>
 
-  <footer>Gerado pelo CIFRA em ${geradoEm}. Valores em reais.</footer>
+  <footer>${escapeHtml(t.exportFile.footer(geradoEm, options.currency))}</footer>
 </body>
 </html>`;
 }

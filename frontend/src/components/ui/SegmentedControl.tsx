@@ -12,6 +12,8 @@ interface SegmentedControlProps<T extends string> {
   ariaLabel: string;
   size?: 'sm' | 'md';
   className?: string;
+  /** Trava o grupo enquanto a escolha anterior ainda está sendo salva. */
+  disabled?: boolean;
 }
 
 /** Grupo de botões mutuamente exclusivos — usado no período e no tipo da transação. */
@@ -22,6 +24,7 @@ export function SegmentedControl<T extends string>({
   ariaLabel,
   size = 'sm',
   className,
+  disabled = false,
 }: SegmentedControlProps<T>) {
   return (
     <div
@@ -29,6 +32,7 @@ export function SegmentedControl<T extends string>({
       aria-label={ariaLabel}
       className={cn(
         'inline-flex items-center gap-0.5 rounded-xl border border-line bg-surface-inset p-0.5',
+        disabled && 'opacity-60',
         className,
       )}
     >
@@ -40,9 +44,11 @@ export function SegmentedControl<T extends string>({
             type="button"
             role="radio"
             aria-checked={selected}
+            disabled={disabled}
             onClick={() => onChange(option.value)}
             className={cn(
               'rounded-[10px] font-medium whitespace-nowrap transition-all duration-150',
+              'disabled:cursor-not-allowed',
               size === 'sm' ? 'h-8 px-3 text-[13px]' : 'h-10 flex-1 px-4 text-sm',
               selected
                 ? 'bg-surface text-ink shadow-[var(--shadow-card)]'

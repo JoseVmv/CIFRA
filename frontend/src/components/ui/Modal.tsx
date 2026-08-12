@@ -3,6 +3,7 @@ import { createPortal } from 'react-dom';
 import type { ReactNode } from 'react';
 import { IconClose } from './Icons';
 import { IconButton } from './Button';
+import { useT } from '../../i18n';
 import { cn } from '../../lib/cn';
 
 interface ModalProps {
@@ -30,6 +31,7 @@ export function Modal({
   const panelRef = useRef<HTMLDivElement>(null);
   const previouslyFocused = useRef<HTMLElement | null>(null);
   const titleId = useId();
+  const t = useT();
 
   useEffect(() => {
     if (!open) return;
@@ -101,7 +103,7 @@ export function Modal({
             </h2>
             {description && <p className="mt-1 text-[13px] text-ink-3">{description}</p>}
           </div>
-          <IconButton label="Fechar" onClick={onClose} className="-mt-1 -mr-1.5">
+          <IconButton label={t.common.close} onClick={onClose} className="-mt-1 -mr-1.5">
             <IconClose />
           </IconButton>
         </header>

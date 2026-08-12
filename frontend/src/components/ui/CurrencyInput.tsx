@@ -1,5 +1,6 @@
 import type { InputHTMLAttributes } from 'react';
-import { digitsToCents, formatDecimal } from '../../lib/format';
+import { useLanguage } from '../../i18n';
+import { currencySymbol, digitsToCents, formatDecimal } from '../../lib/format';
 import { cn } from '../../lib/cn';
 
 type NativeProps = Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'size'>;
@@ -9,6 +10,7 @@ interface CurrencyInputProps extends NativeProps {
   onChangeCents: (cents: number) => void;
   /** `lg` para o valor principal de um formulário; `md` para listas e linhas. */
   size?: 'md' | 'lg';
+  /** Por padrão, o símbolo da moeda em uso. Passe só para enfeitar (um sinal). */
   prefix?: string;
   invalid?: boolean;
 }
@@ -27,11 +29,16 @@ export function CurrencyInput({
   valueCents,
   onChangeCents,
   size = 'md',
-  prefix = 'R$',
+  prefix,
   invalid,
   className,
   ...props
 }: CurrencyInputProps) {
+  // Assinar o contexto aqui garante o repinte quando a moeda muda, mesmo que
+  // quem renderiza o campo não dependa de nada mais do idioma.
+  useLanguage();
+  const symbol = prefix ?? currencySymbol();
+
   return (
     <div className="relative">
       <span
@@ -42,7 +49,7 @@ export function CurrencyInput({
           valueCents !== 0 ? 'text-ink-2' : 'text-ink-3',
         )}
       >
-        {prefix}
+        {symbol}
       </span>
       <input
         inputMode="numeric"

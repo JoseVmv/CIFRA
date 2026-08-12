@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { fileNameOf, summarize, toCsv, toJson, type ExportFilters } from './export';
+import { pt } from '../i18n/pt';
 import type { Transaction } from '../types/api';
 
 function transaction(overrides: Partial<Transaction> = {}): Transaction {
@@ -34,8 +35,16 @@ const FILTERS: ExportFilters = {
   search: '',
 };
 
+/** Em português e em real o arquivo sai igual ao de antes — é o que se checa aqui. */
 function options(transactions: Transaction[], includeTotals = false) {
-  return { transactions, filters: FILTERS, includeTotals };
+  return {
+    transactions,
+    filters: FILTERS,
+    includeTotals,
+    t: pt,
+    language: 'pt' as const,
+    currency: 'BRL' as const,
+  };
 }
 
 describe('exportação em CSV', () => {

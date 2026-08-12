@@ -100,6 +100,52 @@ export interface AccountInput {
   balanceCents: number;
 }
 
+/**
+ * Uma categoria inventada pelo usuário. As sugeridas não moram aqui: elas são
+ * constantes do código (`DEFAULT_CATEGORIES`) porque a interface as traduz.
+ *
+ * O nome é a identidade: é ele que fica gravado em cada transação. Renomear,
+ * portanto, reescreve o histórico em cascata — é o que impede uma mesma
+ * categoria de virar duas fatias no gráfico.
+ */
+export interface Category {
+  id: string;
+  name: string;
+  type: CashflowType;
+  position: number;
+  /** Quantos lançamentos e recorrências usam este nome hoje. */
+  usageCount: number;
+  createdAt: string;
+  updatedAt: string;
+}
+
+export interface CategoryInput {
+  name: string;
+  type: CashflowType;
+}
+
+/** Categorias oferecidas nos seletores: as sugeridas mais as do usuário. */
+export interface CategoriesResponse {
+  income: string[];
+  expense: string[];
+  /** Só as personalizadas, com id — é o que a tela de ajustes gerencia. */
+  custom: Category[];
+}
+
+/** Idiomas em que a interface é oferecida. O backend só guarda a escolha. */
+export const LANGUAGES = ['pt', 'en', 'es'] as const;
+export type Language = (typeof LANGUAGES)[number];
+
+/**
+ * Moedas em que os valores podem ser exibidos.
+ *
+ * A escolha é de **exibição**: os centavos guardados nunca mudam, e trocar de
+ * moeda não converte nada. Quem tem 10000 centavos vê R$ 100,00 ou US$ 100.00 —
+ * o mesmo número, com outro símbolo.
+ */
+export const CURRENCIES = ['BRL', 'USD'] as const;
+export type Currency = (typeof CURRENCIES)[number];
+
 export interface Settings {
   /**
    * Saldo inicial efetivo — o que os cálculos usam. Com múltiplas contas ativas,
@@ -111,7 +157,10 @@ export interface Settings {
   useMultipleAccounts: boolean;
   accountsTotalCents: number;
   displayName: string;
-  currency: string;
+  /** Moeda em que os valores são exibidos. Não converte nada — só o símbolo. */
+  currency: Currency;
+  /** Idioma da interface. Fica no servidor para valer no PC e no celular. */
+  language: Language;
   updatedAt: string;
 }
 

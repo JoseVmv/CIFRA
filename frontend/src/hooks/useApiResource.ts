@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState, type DependencyList } from 'react';
-import { ApiError } from '../lib/api';
+import { ApiError, messages } from '../lib/api';
 
 type Status = 'loading' | 'refreshing' | 'ready' | 'error';
 
@@ -15,8 +15,10 @@ export interface Resource<T> {
 
 function toMessage(error: unknown): string {
   if (error instanceof ApiError) return error.message;
+  // Sobrou algo que não veio da API — em geral um erro de programação. A
+  // mensagem genérica acompanha o idioma pelo mesmo caminho de `lib/api`.
   console.error('[recurso] erro inesperado', error);
-  return 'Não foi possível carregar os dados. Tente novamente.';
+  return messages.generic;
 }
 
 /**

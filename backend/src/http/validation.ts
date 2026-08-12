@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { isValidIsoDate } from '../domain/dates';
 import { PERIOD_KEYS } from '../domain/period';
+import { CURRENCIES, LANGUAGES } from '../domain/types';
 import { RESET_CONFIRMATION } from '../services/maintenance.service';
 import { MAX_INSTALLMENTS } from '../services/transactions.service';
 import { ValidationError } from '../errors';
@@ -74,6 +75,20 @@ export const recurrenceBodySchema = z
     message: 'end_before_start',
   });
 
+const categoryNameSchema = z.string().trim().min(1).max(MAX_CATEGORY_LENGTH);
+
+export const categoryBodySchema = z.object({
+  name: categoryNameSchema,
+  type: z.enum(['income', 'expense']),
+});
+
+export const categoryRenameSchema = z.object({ name: categoryNameSchema });
+
+/** Destino opcional dos lançamentos ao apagar uma categoria em uso. */
+export const categoryDeleteQuerySchema = z.object({
+  reassignTo: categoryNameSchema.optional(),
+});
+
 const balanceCentsSchema = z.number().int().min(-MAX_AMOUNT_CENTS).max(MAX_AMOUNT_CENTS);
 
 export const settingsBodySchema = z
@@ -81,7 +96,8 @@ export const settingsBodySchema = z
     initialBalanceCents: balanceCentsSchema.optional(),
     useMultipleAccounts: z.boolean().optional(),
     displayName: z.string().trim().max(MAX_NAME_LENGTH).optional(),
-    currency: z.string().trim().min(3).max(3).optional(),
+    currency: z.enum(CURRENCIES).optional(),
+    language: z.enum(LANGUAGES).optional(),
   })
   .refine((value) => Object.values(value).some((field) => field !== undefined), 'empty_update');
 
@@ -162,23 +178,35 @@ const FIELD_MESSAGES: Record<string, string> = {
   name: `Dê um nome à conta, com até ${MAX_ACCOUNT_NAME_LENGTH} caracteres.`,
   balanceCents: 'Informe um saldo válido para a conta.',
   currency: 'Moeda inválida.',
+  language: 'Idioma inválido.',
+  reassignTo: 'Escolha uma categoria de destino válida.',
   search: 'Busca muito longa.',
   id: 'Identificador inválido.',
   confirm: `Para apagar tudo, confirme enviando "${RESET_CONFIRMATION}".`,
 };
 
-function toFriendlyMessage(issues: z.core.$ZodIssue[]): string {
+function toFriendlyMessage(issues: z.core.$ZodIssue[], overrides?: FieldMessages): string {
   const field = issues[0]?.path?.[0];
-  if (typeof field === 'string' && FIELD_MESSAGES[field]) {
-    return FIELD_MESSAGES[field];
+  if (typeof field === 'string') {
+    const message = overrides?.[field] ?? FIELD_MESSAGES[field];
+    if (message) return message;
   }
   return 'Não foi possível validar os dados enviados.';
 }
 
-/** Valida e devolve os dados já tipados, ou lança um 422 com detalhes. */
+type FieldMessages = Record<string, string>;
+
+/**
+ * Valida e devolve os dados já tipados, ou lança um 422 com detalhes.
+ *
+ * `overrides` existe porque o mesmo nome de campo aparece em recursos
+ * diferentes — `name` é conta e é categoria — e a mensagem certa depende de
+ * quem está validando.
+ */
 export function parseOrThrow<Schema extends z.ZodType>(
   schema: Schema,
   data: unknown,
+  overrides?: FieldMessages,
 ): z.infer<Schema> {
   const result = schema.safeParse(data);
   if (!result.success) {
@@ -186,7 +214,7 @@ export function parseOrThrow<Schema extends z.ZodType>(
       field: issue.path.join('.') || '(corpo)',
       code: issue.code,
     }));
-    throw new ValidationError(toFriendlyMessage(result.error.issues), issues);
+    throw new ValidationError(toFriendlyMessage(result.error.issues, overrides), issues);
   }
   return result.data;
 }

@@ -1,12 +1,9 @@
 import { useMemo } from 'react';
-import { formatCurrency } from '../../lib/format';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
+import { formatCurrency, formatPercent } from '../../lib/format';
 import { cn } from '../../lib/cn';
 import type { CategorySlice, TransactionType } from '../../types/api';
-
-const percentFormatter = new Intl.NumberFormat('pt-BR', {
-  minimumFractionDigits: 1,
-  maximumFractionDigits: 1,
-});
 
 interface CategoryBreakdownProps {
   slices: CategorySlice[];
@@ -30,19 +27,29 @@ export function CategoryBreakdown({
   maxRows = 8,
   className,
 }: CategoryBreakdownProps) {
-  const rows = useMemo(() => {
-    if (slices.length <= maxRows) return slices;
+  const t = useT();
+  const { language } = useLanguage();
 
-    const visible = slices.slice(0, maxRows - 1);
-    const rest = slices.slice(maxRows - 1);
-    const merged: CategorySlice = {
-      category: `Outras ${rest.length} categorias`,
+  const rows = useMemo(() => {
+    // A linha agregada já vem com o texto pronto, e não é uma categoria de
+    // verdade: `label` é o que se mostra, `category` continua sendo a chave.
+    const labelled = slices.map((slice) => ({
+      ...slice,
+      label: categoryLabel(slice.category, language),
+    }));
+    if (labelled.length <= maxRows) return labelled;
+
+    const visible = labelled.slice(0, maxRows - 1);
+    const rest = labelled.slice(maxRows - 1);
+    const merged: CategorySlice & { label: string } = {
+      category: '__outras__',
+      label: t.analytics.otherCategories(rest.length),
       totalCents: rest.reduce((sum, slice) => sum + slice.totalCents, 0),
       percent: Math.round(rest.reduce((sum, slice) => sum + slice.percent, 0) * 10) / 10,
       count: rest.reduce((sum, slice) => sum + slice.count, 0),
     };
     return [...visible, merged];
-  }, [slices, maxRows]);
+  }, [slices, maxRows, language, t]);
 
   const largest = rows[0]?.totalCents ?? 0;
   const color = type === 'income' ? 'var(--income)' : 'var(--expense)';
@@ -52,10 +59,10 @@ export function CategoryBreakdown({
       {rows.map((slice) => (
         <li key={slice.category}>
           <div className="flex items-baseline justify-between gap-4">
-            <span className="truncate text-[13px] font-medium text-ink">{slice.category}</span>
+            <span className="truncate text-[13px] font-medium text-ink">{slice.label}</span>
             <span className="tnum shrink-0 text-[13px] text-ink-2">
               {formatCurrency(slice.totalCents)}
-              <span className="ml-2 text-ink-3">{percentFormatter.format(slice.percent)}%</span>
+              <span className="ml-2 text-ink-3">{formatPercent(slice.percent)}%</span>
             </span>
           </div>
           <div className="mt-2 h-1.5 w-full overflow-hidden rounded-full bg-surface-inset">

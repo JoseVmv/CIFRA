@@ -1,24 +1,42 @@
 import type { DatabaseSync } from 'node:sqlite';
-import type { Settings } from '../domain/types';
+import {
+  CURRENCIES,
+  LANGUAGES,
+  type Currency,
+  type Language,
+  type Settings,
+} from '../domain/types';
 import type { AccountsService } from './accounts.service';
 
 const INITIAL_BALANCE_KEY = 'initial_balance_cents';
 const USE_MULTIPLE_ACCOUNTS_KEY = 'use_multiple_accounts';
 const DISPLAY_NAME_KEY = 'display_name';
 const CURRENCY_KEY = 'currency';
+const LANGUAGE_KEY = 'language';
 
 const DEFAULTS = {
   initialBalanceCents: 0,
   useMultipleAccounts: false,
   displayName: '',
   currency: 'BRL',
+  language: 'pt',
 } as const;
 
 export interface SettingsUpdate {
   initialBalanceCents?: number;
   useMultipleAccounts?: boolean;
   displayName?: string;
-  currency?: string;
+  currency?: Currency;
+  language?: Language;
+}
+
+/** Um valor fora da lista (banco editado à mão, versão antiga) cai no padrão. */
+function toLanguage(value: string | undefined): Language {
+  return LANGUAGES.includes(value as Language) ? (value as Language) : DEFAULTS.language;
+}
+
+function toCurrency(value: string | undefined): Currency {
+  return CURRENCIES.includes(value as Currency) ? (value as Currency) : DEFAULTS.currency;
 }
 
 export type SettingsService = ReturnType<typeof createSettingsService>;
@@ -54,7 +72,8 @@ export function createSettingsService(db: DatabaseSync, accounts: AccountsServic
       useMultipleAccounts,
       accountsTotalCents,
       displayName: rows.get(DISPLAY_NAME_KEY)?.value ?? DEFAULTS.displayName,
-      currency: rows.get(CURRENCY_KEY)?.value ?? DEFAULTS.currency,
+      currency: toCurrency(rows.get(CURRENCY_KEY)?.value),
+      language: toLanguage(rows.get(LANGUAGE_KEY)?.value),
       updatedAt: updatedAt ?? new Date(0).toISOString(),
     };
   }
@@ -73,6 +92,9 @@ export function createSettingsService(db: DatabaseSync, accounts: AccountsServic
     }
     if (input.currency !== undefined) {
       upsert.run(CURRENCY_KEY, input.currency, now);
+    }
+    if (input.language !== undefined) {
+      upsert.run(LANGUAGE_KEY, input.language, now);
     }
     return get();
   }

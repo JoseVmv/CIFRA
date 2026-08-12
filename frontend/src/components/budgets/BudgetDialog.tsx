@@ -5,17 +5,19 @@ import { CurrencyInput } from '../ui/CurrencyInput';
 import { Field, Select } from '../ui/Field';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
+import type { Dictionary } from '../../i18n/pt';
 import { api, ApiError } from '../../lib/api';
 import type { BudgetUsage } from '../../types/api';
 
 /** Janelas oferecidas na interface. A API aceita de 1 a 24 meses. */
-const MONTH_OPTIONS = [
-  { value: 1, label: 'A cada mês' },
-  { value: 2, label: 'A cada 2 meses' },
-  { value: 3, label: 'A cada 3 meses' },
-  { value: 6, label: 'A cada 6 meses' },
-  { value: 12, label: 'A cada 12 meses' },
-] as const;
+function monthWindows(t: Dictionary): ReadonlyArray<{ value: number; label: string }> {
+  return [
+    { value: 1, label: t.budgets.everyMonth },
+    ...[2, 3, 6, 12].map((value) => ({ value, label: t.budgets.everyNMonths(value) })),
+  ];
+}
 
 interface BudgetDialogProps {
   open: boolean;
@@ -34,6 +36,8 @@ interface FormErrors {
 export function BudgetDialog({ open, onClose, budget, usedCategories }: BudgetDialogProps) {
   const { categories, refresh } = useFinance();
   const { notify } = useToast();
+  const t = useT();
+  const { language } = useLanguage();
 
   const [category, setCategory] = useState('');
   const [limitCents, setLimitCents] = useState(0);
@@ -65,8 +69,8 @@ export function BudgetDialog({ open, onClose, budget, usedCategories }: BudgetDi
     event.preventDefault();
 
     const validation: FormErrors = {};
-    if (!category) validation.category = 'Escolha a categoria do limite.';
-    if (limitCents <= 0) validation.limitCents = 'Informe um limite maior que zero.';
+    if (!category) validation.category = t.budgets.errorCategory;
+    if (limitCents <= 0) validation.limitCents = t.budgets.errorLimit;
     setErrors(validation);
     if (Object.keys(validation).length > 0) return;
 
@@ -76,17 +80,15 @@ export function BudgetDialog({ open, onClose, budget, usedCategories }: BudgetDi
       const payload = { category, limitCents, months };
       if (budget) {
         await api.updateBudget(budget.id, payload);
-        notify('Limite atualizado');
+        notify(t.budgets.updated);
       } else {
         await api.createBudget(payload);
-        notify('Limite criado');
+        notify(t.budgets.created);
       }
       refresh();
       onClose();
     } catch (error) {
-      setFormError(
-        error instanceof ApiError ? error.message : 'Não foi possível salvar o limite.',
-      );
+      setFormError(error instanceof ApiError ? error.message : t.budgets.saveFailed);
     } finally {
       setSubmitting(false);
     }
@@ -96,21 +98,21 @@ export function BudgetDialog({ open, onClose, budget, usedCategories }: BudgetDi
     <Modal
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Editar limite' : 'Novo limite de gasto'}
-      description="Defina quanto você quer gastar numa categoria e em que intervalo."
+      title={isEditing ? t.budgets.editDialogTitle : t.budgets.newDialogTitle}
+      description={t.budgets.dialogDescription}
       footer={
         <>
           <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancelar
+            {t.common.cancel}
           </Button>
           <Button type="submit" form="budget-form" variant="primary" loading={submitting}>
-            {isEditing ? 'Salvar alterações' : 'Criar limite'}
+            {isEditing ? t.common.saveChanges : t.budgets.createBudget}
           </Button>
         </>
       }
     >
       <form id="budget-form" onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
-        <Field label="Categoria" error={errors.category}>
+        <Field label={t.transactionDialog.category} error={errors.category}>
           {({ id, describedBy, invalid }) => (
             <Select
               id={id}
@@ -123,18 +125,18 @@ export function BudgetDialog({ open, onClose, budget, usedCategories }: BudgetDi
               }}
             >
               <option value="" disabled>
-                Selecione…
+                {t.common.select}
               </option>
               {categoryOptions.map((option) => (
                 <option key={option} value={option}>
-                  {option}
+                  {categoryLabel(option, language)}
                 </option>
               ))}
             </Select>
           )}
         </Field>
 
-        <Field label="Limite" error={errors.limitCents}>
+        <Field label={t.budgets.limit} error={errors.limitCents}>
           {({ id, describedBy, invalid }) => (
             <CurrencyInput
               id={id}
@@ -150,17 +152,14 @@ export function BudgetDialog({ open, onClose, budget, usedCategories }: BudgetDi
           )}
         </Field>
 
-        <Field
-          label="Período do limite"
-          hint="O consumo é somado nessa janela, terminando no mês que você está vendo."
-        >
+        <Field label={t.budgets.windowLabel} hint={t.budgets.windowHint}>
           {({ id }) => (
             <Select
               id={id}
               value={String(months)}
               onChange={(event) => setMonths(Number(event.target.value))}
             >
-              {MONTH_OPTIONS.map((option) => (
+              {monthWindows(t).map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>

@@ -12,6 +12,8 @@ import {
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
 import { useTransactionDialog } from '../../context/TransactionDialogContext';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
 import { api, ApiError } from '../../lib/api';
 import { formatCurrency, formatRelativeDay, formatSigned } from '../../lib/format';
 import { cn } from '../../lib/cn';
@@ -51,6 +53,7 @@ interface TransactionListProps {
 export function TransactionList({ transactions, compact = false }: TransactionListProps) {
   const groups = useMemo(() => groupByDay(transactions), [transactions]);
   const [pendingDelete, setPendingDelete] = useState<Transaction | null>(null);
+  const t = useT();
 
   return (
     <>
@@ -64,7 +67,7 @@ export function TransactionList({ transactions, compact = false }: TransactionLi
               )}
             >
               <h3 className="text-[11px] font-semibold tracking-[0.06em] text-ink-3 uppercase">
-                {formatRelativeDay(group.date)}
+                {formatRelativeDay(group.date, t.common)}
               </h3>
               {!compact && (
                 <span className="tnum text-[12px] text-ink-3">
@@ -100,6 +103,8 @@ interface TransactionRowProps {
 
 function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps) {
   const { openEdit } = useTransactionDialog();
+  const t = useT();
+  const { language } = useLanguage();
   const income = transaction.type === 'income';
   const transfer = transaction.type === 'transfer';
 
@@ -131,27 +136,29 @@ function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps)
             <IconRepeat
               className="size-3 shrink-0"
               role="img"
-              aria-label="Criada por uma recorrência"
+              aria-label={t.transactions.fromRecurrence}
             />
           )}
           <span className="truncate">
             {transfer ? (
               <>
-                {transaction.accountName ?? 'conta removida'}
+                {transaction.accountName ?? t.transactions.removedAccount}
                 <span aria-hidden> → </span>
-                {transaction.transferAccountName ?? 'conta removida'}
-                <span className="sr-only"> — transferência entre contas</span>
+                {transaction.transferAccountName ?? t.transactions.removedAccount}
+                <span className="sr-only">{t.transactions.transferHint}</span>
               </>
             ) : (
               <>
-                {transaction.category}
+                {categoryLabel(transaction.category, language)}
                 {transaction.accountName && (
                   <>
                     <span aria-hidden> · </span>
                     {transaction.accountName}
                   </>
                 )}
-                <span className="sr-only"> — {income ? 'entrada' : 'saída'}</span>
+                <span className="sr-only">
+                  {income ? t.transactions.incomeHint : t.transactions.expenseHint}
+                </span>
               </>
             )}
           </span>
@@ -174,14 +181,14 @@ function TransactionRow({ transaction, compact, onDelete }: TransactionRowProps)
       {!compact && (
         <div className="flex shrink-0 items-center gap-0.5 opacity-100 transition-opacity sm:opacity-0 sm:group-focus-within:opacity-100 sm:group-hover:opacity-100">
           <IconButton
-            label={`Editar ${transaction.description}`}
+            label={t.transactions.editLabel(transaction.description)}
             className="size-8"
             onClick={() => openEdit(transaction)}
           >
             <IconPencil />
           </IconButton>
           <IconButton
-            label={`Excluir ${transaction.description}`}
+            label={t.transactions.deleteLabel(transaction.description)}
             className="size-8 hover:bg-expense-soft hover:text-expense-text"
             onClick={onDelete}
           >
@@ -202,6 +209,8 @@ function DeleteDialog({
 }) {
   const { refresh } = useFinance();
   const { notify } = useToast();
+  const t = useT();
+  const { language } = useLanguage();
   const [deleting, setDeleting] = useState(false);
   const [wholePurchase, setWholePurchase] = useState(false);
 
@@ -218,18 +227,15 @@ function DeleteDialog({
     try {
       if (wholePurchase) {
         const { deleted } = await api.deleteInstallmentGroup(transaction.id);
-        notify(`${deleted} parcelas excluídas`);
+        notify(t.deleteTransaction.deletedInstallments(deleted));
       } else {
         await api.deleteTransaction(transaction.id);
-        notify('Transação excluída');
+        notify(t.deleteTransaction.deleted);
       }
       refresh();
       onClose();
     } catch (error) {
-      notify(
-        error instanceof ApiError ? error.message : 'Não foi possível excluir. Tente novamente.',
-        'error',
-      );
+      notify(error instanceof ApiError ? error.message : t.deleteTransaction.failed, 'error');
     } finally {
       setDeleting(false);
     }
@@ -242,15 +248,15 @@ function DeleteDialog({
       open={Boolean(transaction)}
       onClose={onClose}
       size="sm"
-      title="Excluir transação?"
-      description="O saldo e os gráficos são recalculados na hora. Esta ação não pode ser desfeita."
+      title={t.deleteTransaction.title}
+      description={t.deleteTransaction.description}
       footer={
         <>
           <Button variant="ghost" onClick={onClose} disabled={deleting}>
-            Cancelar
+            {t.common.cancel}
           </Button>
           <Button variant="danger" onClick={handleDelete} loading={deleting}>
-            Excluir
+            {t.common.delete}
           </Button>
         </>
       }
@@ -268,9 +274,9 @@ function DeleteDialog({
             </p>
             <p className="mt-1 text-[13px] text-ink-3">
               {transfer
-                ? `${transaction.accountName ?? 'conta removida'} → ${transaction.transferAccountName ?? 'conta removida'}`
-                : transaction.category}{' '}
-              · {formatRelativeDay(transaction.date)}
+                ? `${transaction.accountName ?? t.transactions.removedAccount} → ${transaction.transferAccountName ?? t.transactions.removedAccount}`
+                : categoryLabel(transaction.category, language)}{' '}
+              · {formatRelativeDay(transaction.date, t.common)}
             </p>
             <p
               className={cn(
@@ -295,9 +301,9 @@ function DeleteDialog({
                 className="mt-0.5 size-4 accent-[var(--accent)]"
               />
               <span>
-                Excluir as {installments} parcelas desta compra
+                {t.deleteTransaction.wholePurchase(installments)}
                 <span className="mt-0.5 block text-xs text-ink-3">
-                  Sem marcar, só esta parcela sai — as outras continuam no histórico.
+                  {t.deleteTransaction.wholePurchaseHint}
                 </span>
               </span>
             </label>

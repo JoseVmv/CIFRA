@@ -4,6 +4,7 @@ import { Card, CardHeader } from '../ui/Card';
 import { IconButton } from '../ui/Button';
 import { IconChart, IconTable } from '../ui/Icons';
 import { PENDING_SWATCH } from './chartTheme';
+import { useT } from '../../i18n';
 import { cn } from '../../lib/cn';
 
 export interface LegendItem {
@@ -35,6 +36,7 @@ export function ChartCard({
   className,
 }: ChartCardProps) {
   const [view, setView] = useState<'chart' | 'table'>('chart');
+  const t = useT();
 
   return (
     <Card className={cn('flex flex-col', className)}>
@@ -44,7 +46,7 @@ export function ChartCard({
         action={
           table && (
             <IconButton
-              label={view === 'chart' ? 'Ver os dados em tabela' : 'Voltar para o gráfico'}
+              label={view === 'chart' ? t.charts.seeTable : t.charts.seeChart}
               onClick={() => setView(view === 'chart' ? 'table' : 'chart')}
             >
               {view === 'chart' ? <IconTable /> : <IconChart />}

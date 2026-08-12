@@ -4,6 +4,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AccountsPanel } from './AccountsPanel';
 import { FinanceProvider } from '../../context/FinanceContext';
 import { ToastProvider } from '../../context/ToastContext';
+import { I18nProvider } from '../../i18n';
 import { api } from '../../lib/api';
 import type { Account } from '../../types/api';
 
@@ -50,11 +51,13 @@ const ITAU = account('Itaú', 800_000, 1);
 
 function renderPanel() {
   return render(
-    <ToastProvider>
-      <FinanceProvider>
-        <AccountsPanel />
-      </FinanceProvider>
-    </ToastProvider>,
+    <I18nProvider>
+      <ToastProvider>
+        <FinanceProvider>
+          <AccountsPanel />
+        </FinanceProvider>
+      </ToastProvider>
+    </I18nProvider>,
   );
 }
 
@@ -66,9 +69,10 @@ beforeEach(() => {
     accountsTotalCents: 1_050_000,
     displayName: '',
     currency: 'BRL',
+    language: 'pt',
     updatedAt: new Date().toISOString(),
   });
-  mockedApi.getCategories.mockResolvedValue({ income: [], expense: [] });
+  mockedApi.getCategories.mockResolvedValue({ income: [], expense: [], custom: [] });
   mockedApi.listAccounts.mockResolvedValue({
     items: [NUBANK, ITAU],
     totalCents: 1_050_000,

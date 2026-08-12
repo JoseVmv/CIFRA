@@ -6,17 +6,15 @@ import { Field, Select, TextInput } from '../ui/Field';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
+import type { Dictionary } from '../../i18n/pt';
 import { api, ApiError } from '../../lib/api';
 import { todayIso } from '../../lib/format';
-import { FREQUENCY_OPTIONS, MONTHS, WEEKDAYS } from '../../lib/recurrence';
+import { frequencyOptions, monthOptions, weekdayOptions } from '../../lib/recurrence';
 import type { CashflowType, Recurrence, RecurrenceFrequency } from '../../types/api';
 
 const MAX_DESCRIPTION = 140;
-
-const TYPE_OPTIONS: ReadonlyArray<{ value: CashflowType; label: string }> = [
-  { value: 'income', label: 'Entrada' },
-  { value: 'expense', label: 'Saída' },
-];
 
 const DAYS_OF_MONTH = Array.from({ length: 31 }, (_, index) => index + 1);
 
@@ -74,18 +72,19 @@ function initialState(recurrence: Recurrence | null): FormState {
   };
 }
 
-function validate(state: FormState, requiresAccount: boolean): FormErrors {
+function validate(state: FormState, requiresAccount: boolean, t: Dictionary): FormErrors {
   const errors: FormErrors = {};
 
-  if (state.amountCents <= 0) errors.amountCents = 'Informe um valor maior que zero.';
-  if (!state.description.trim()) errors.description = 'Descreva o lançamento.';
-  if (!state.category) errors.category = 'Escolha uma categoria.';
-  if (!ISO_DATE.test(state.startDate)) errors.startDate = 'Informe uma data válida.';
-  if (state.endDate && !ISO_DATE.test(state.endDate)) errors.endDate = 'Informe uma data válida.';
+  if (state.amountCents <= 0) errors.amountCents = t.transactionDialog.errorAmount;
+  if (!state.description.trim()) errors.description = t.recurrences.errorDescription;
+  if (!state.category) errors.category = t.transactionDialog.errorCategory;
+  if (!ISO_DATE.test(state.startDate)) errors.startDate = t.transactionDialog.errorDate;
+  if (state.endDate && !ISO_DATE.test(state.endDate))
+    errors.endDate = t.transactionDialog.errorDate;
   else if (state.endDate && state.endDate < state.startDate) {
-    errors.endDate = 'A data final precisa vir depois do início.';
+    errors.endDate = t.recurrences.errorEndBeforeStart;
   }
-  if (requiresAccount && !state.accountId) errors.accountId = 'Escolha a conta desta recorrência.';
+  if (requiresAccount && !state.accountId) errors.accountId = t.recurrences.errorAccount;
 
   return errors;
 }
@@ -100,6 +99,13 @@ interface RecurrenceDialogProps {
 export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialogProps) {
   const { categories, refresh, settings, accounts } = useFinance();
   const { notify } = useToast();
+  const t = useT();
+  const { language } = useLanguage();
+
+  const typeOptions: ReadonlyArray<{ value: CashflowType; label: string }> = [
+    { value: 'income', label: t.type.income },
+    { value: 'expense', label: t.type.expense },
+  ];
 
   const useAccounts = settings?.useMultipleAccounts ?? false;
   const accountOptions = accounts ?? [];
@@ -131,7 +137,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    const validation = validate(state, requiresAccount);
+    const validation = validate(state, requiresAccount, t);
     setErrors(validation);
     if (Object.keys(validation).length > 0) return;
 
@@ -155,19 +161,15 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
     try {
       if (recurrence) {
         await api.updateRecurrence(recurrence.id, payload);
-        notify('Recorrência atualizada');
+        notify(t.recurrences.updated);
       } else {
         await api.createRecurrence(payload);
-        notify('Recorrência criada');
+        notify(t.recurrences.created);
       }
       refresh();
       onClose();
     } catch (error) {
-      setFormError(
-        error instanceof ApiError
-          ? error.message
-          : 'Não foi possível salvar a recorrência. Tente novamente.',
-      );
+      setFormError(error instanceof ApiError ? error.message : t.recurrences.saveFailed);
     } finally {
       setSubmitting(false);
     }
@@ -177,25 +179,25 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
     <Modal
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Editar recorrência' : 'Nova recorrência'}
-      description="O app cria essa transação sozinho toda vez que a data chegar."
+      title={isEditing ? t.recurrences.editDialogTitle : t.recurrences.newDialogTitle}
+      description={t.recurrences.dialogDescription}
       footer={
         <>
           <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancelar
+            {t.common.cancel}
           </Button>
           <Button type="submit" form="recurrence-form" variant="primary" loading={submitting}>
-            {isEditing ? 'Salvar alterações' : 'Criar recorrência'}
+            {isEditing ? t.common.saveChanges : t.recurrences.createRecurrence}
           </Button>
         </>
       }
     >
       <form id="recurrence-form" onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
         <SegmentedControl
-          ariaLabel="Tipo da recorrência"
+          ariaLabel={t.recurrences.typeLabel}
           size="md"
           className="w-full"
-          options={TYPE_OPTIONS}
+          options={typeOptions}
           value={state.type}
           onChange={(type) => {
             setState((current) => ({ ...current, type, category: '' }));
@@ -203,7 +205,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
           }}
         />
 
-        <Field label="Valor" error={errors.amountCents}>
+        <Field label={t.transactionDialog.amount} error={errors.amountCents}>
           {({ id, describedBy, invalid }) => (
             <CurrencyInput
               id={id}
@@ -216,7 +218,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
           )}
         </Field>
 
-        <Field label="Descrição" error={errors.description}>
+        <Field label={t.transactionDialog.description} error={errors.description}>
           {({ id, describedBy, invalid }) => (
             <TextInput
               id={id}
@@ -224,14 +226,18 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
               invalid={invalid}
               maxLength={MAX_DESCRIPTION}
               autoComplete="off"
-              placeholder={state.type === 'income' ? 'Salário' : 'Aluguel'}
+              placeholder={
+                state.type === 'income'
+                  ? t.recurrences.incomePlaceholder
+                  : t.recurrences.expensePlaceholder
+              }
               value={state.description}
               onChange={(event) => update('description', event.target.value)}
             />
           )}
         </Field>
 
-        <Field label="Categoria" error={errors.category}>
+        <Field label={t.transactionDialog.category} error={errors.category}>
           {({ id, describedBy, invalid }) => (
             <Select
               id={id}
@@ -241,11 +247,11 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
               onChange={(event) => update('category', event.target.value)}
             >
               <option value="" disabled>
-                Selecione…
+                {t.common.select}
               </option>
               {categoryOptions.map((category) => (
                 <option key={category} value={category}>
-                  {category}
+                  {categoryLabel(category, language)}
                 </option>
               ))}
             </Select>
@@ -253,7 +259,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
         </Field>
 
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Com que frequência">
+          <Field label={t.recurrences.frequency}>
             {({ id }) => (
               <Select
                 id={id}
@@ -262,7 +268,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
                   update('frequency', event.target.value as RecurrenceFrequency)
                 }
               >
-                {FREQUENCY_OPTIONS.map((option) => (
+                {frequencyOptions(t).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -272,14 +278,14 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
           </Field>
 
           {state.frequency === 'weekly' ? (
-            <Field label="Dia da semana">
+            <Field label={t.recurrences.weekday}>
               {({ id }) => (
                 <Select
                   id={id}
                   value={String(state.weekday)}
                   onChange={(event) => update('weekday', Number(event.target.value))}
                 >
-                  {WEEKDAYS.map((option) => (
+                  {weekdayOptions(t).map((option) => (
                     <option key={option.value} value={option.value}>
                       {option.label}
                     </option>
@@ -289,8 +295,8 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
             </Field>
           ) : (
             <Field
-              label="Dia do mês"
-              hint={state.dayOfMonth > 28 ? 'Meses mais curtos usam o último dia.' : undefined}
+              label={t.recurrences.dayOfMonth}
+              hint={state.dayOfMonth > 28 ? t.recurrences.dayOfMonthHint : undefined}
             >
               {({ id, describedBy }) => (
                 <Select
@@ -311,14 +317,14 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
         </div>
 
         {state.frequency === 'yearly' && (
-          <Field label="Mês">
+          <Field label={t.recurrences.month}>
             {({ id }) => (
               <Select
                 id={id}
                 value={String(state.month)}
                 onChange={(event) => update('month', Number(event.target.value))}
               >
-                {MONTHS.map((option) => (
+                {monthOptions(t).map((option) => (
                   <option key={option.value} value={option.value}>
                     {option.label}
                   </option>
@@ -330,9 +336,9 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
 
         <div className="grid gap-5 sm:grid-cols-2">
           <Field
-            label="Começa em"
+            label={t.recurrences.startsOn}
             error={errors.startDate}
-            hint="Datas já passadas a partir daqui são lançadas de uma vez."
+            hint={t.recurrences.startsOnHint}
           >
             {({ id, describedBy, invalid }) => (
               <TextInput
@@ -348,7 +354,11 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
             )}
           </Field>
 
-          <Field label="Termina em" error={errors.endDate} hint="Deixe em branco para não ter fim.">
+          <Field
+            label={t.recurrences.endsOn}
+            error={errors.endDate}
+            hint={t.recurrences.endsOnHint}
+          >
             {({ id, describedBy, invalid }) => (
               <TextInput
                 id={id}
@@ -366,7 +376,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
 
         {useAccounts &&
           (accountOptions.length > 0 ? (
-            <Field label="Conta" error={errors.accountId}>
+            <Field label={t.transactionDialog.account} error={errors.accountId}>
               {({ id, describedBy, invalid }) => (
                 <Select
                   id={id}
@@ -376,7 +386,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
                   onChange={(event) => update('accountId', event.target.value)}
                 >
                   <option value="" disabled>
-                    Selecione…
+                    {t.common.select}
                   </option>
                   {accountOptions.map((account) => (
                     <option key={account.id} value={account.id}>
@@ -388,9 +398,7 @@ export function RecurrenceDialog({ open, onClose, recurrence }: RecurrenceDialog
             </Field>
           ) : (
             <p className="rounded-xl bg-surface-inset px-4 py-3 text-[13px] text-ink-2">
-              Você ativou múltiplas contas mas ainda não cadastrou nenhuma. Adicione suas contas em{' '}
-              <strong className="font-medium text-ink">Usuário</strong> para vincular os
-              lançamentos.
+              {t.recurrences.noAccountsNote}
             </p>
           ))}
 

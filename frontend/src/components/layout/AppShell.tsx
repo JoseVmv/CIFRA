@@ -12,17 +12,21 @@ import {
   IconUser,
 } from '../ui/Icons';
 import { useTheme } from '../../hooks/useTheme';
+import { useT } from '../../i18n';
+import type { Dictionary } from '../../i18n/pt';
 import { useTransactionDialog } from '../../context/TransactionDialogContext';
 import { cn } from '../../lib/cn';
 
 /** `short` é o rótulo da barra inferior no celular, onde o espaço é apertado. */
-const NAV_ITEMS = [
-  { to: '/', label: 'Visão geral', short: 'Início', icon: IconDashboard },
-  { to: '/transacoes', label: 'Transações', short: 'Extrato', icon: IconList },
-  { to: '/analises', label: 'Análises', short: 'Análises', icon: IconChart },
-  { to: '/usuario', label: 'Usuário', short: 'Usuário', icon: IconUser },
-  { to: '/ajustes', label: 'Ajustes', short: 'Ajustes', icon: IconSettings },
-] as const;
+function navItems(t: Dictionary) {
+  return [
+    { to: '/', label: t.nav.dashboard, short: t.nav.dashboardShort, icon: IconDashboard },
+    { to: '/transacoes', label: t.nav.transactions, short: t.nav.transactionsShort, icon: IconList },
+    { to: '/analises', label: t.nav.analytics, short: t.nav.analyticsShort, icon: IconChart },
+    { to: '/usuario', label: t.nav.profile, short: t.nav.profileShort, icon: IconUser },
+    { to: '/ajustes', label: t.nav.settings, short: t.nav.settingsShort, icon: IconSettings },
+  ];
+}
 
 function Brand() {
   return (
@@ -46,9 +50,10 @@ function Brand() {
 
 function ThemeToggle() {
   const { theme, toggleTheme } = useTheme();
+  const t = useT();
   return (
     <IconButton
-      label={theme === 'dark' ? 'Usar tema claro' : 'Usar tema escuro'}
+      label={theme === 'dark' ? t.nav.useLightTheme : t.nav.useDarkTheme}
       onClick={toggleTheme}
     >
       {theme === 'dark' ? <IconSun /> : <IconMoon />}
@@ -59,6 +64,8 @@ function ThemeToggle() {
 export function AppShell({ children }: { children: ReactNode }) {
   const { openNew } = useTransactionDialog();
   const location = useLocation();
+  const t = useT();
+  const items = navItems(t);
 
   return (
     <div className="min-h-dvh bg-app">
@@ -74,11 +81,11 @@ export function AppShell({ children }: { children: ReactNode }) {
           className="mt-7 w-full"
           onClick={() => openNew()}
         >
-          Nova transação
+          {t.nav.newTransaction}
         </Button>
 
-        <nav className="mt-7 flex flex-1 flex-col gap-0.5" aria-label="Seções do aplicativo">
-          {NAV_ITEMS.map((item) => (
+        <nav className="mt-7 flex flex-1 flex-col gap-0.5" aria-label={t.nav.sections}>
+          {items.map((item) => (
             <NavLink key={item.to} to={item.to} end={item.to === '/'} className={navLinkClass}>
               <item.icon />
               {item.label}
@@ -87,7 +94,7 @@ export function AppShell({ children }: { children: ReactNode }) {
         </nav>
 
         <div className="flex items-center justify-between border-t border-line pt-4">
-          <p className="px-2 text-xs text-ink-3">Dados salvos no seu computador</p>
+          <p className="px-2 text-xs text-ink-3">{t.nav.localData}</p>
           <ThemeToggle />
         </div>
       </aside>
@@ -115,15 +122,15 @@ export function AppShell({ children }: { children: ReactNode }) {
         )}
       >
         <IconPlus />
-        Nova
+        {t.nav.newShort}
       </button>
 
       {/* Navegação inferior — mobile */}
       <nav
         className="fixed inset-x-0 bottom-0 z-30 grid grid-cols-5 border-t border-line bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur-md lg:hidden"
-        aria-label="Seções do aplicativo"
+        aria-label={t.nav.sections}
       >
-        {NAV_ITEMS.map((item) => {
+        {items.map((item) => {
           const active =
             item.to === '/' ? location.pathname === '/' : location.pathname.startsWith(item.to);
           return (

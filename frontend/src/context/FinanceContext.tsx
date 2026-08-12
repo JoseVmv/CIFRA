@@ -1,5 +1,16 @@
-import { createContext, useCallback, useContext, useMemo, useState } from 'react';
+import {
+  createContext,
+  useCallback,
+  useContext,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+} from 'react';
 import type { ReactNode } from 'react';
+import { useLanguage, type Language } from '../i18n';
+import type { Currency } from '../types/api';
+import type { Dictionary } from '../i18n/pt';
 import { api } from '../lib/api';
 import { addMonths, isCurrentWindow, periodStep, periodWindowLabel } from '../lib/months';
 import { todayIso } from '../lib/format';
@@ -9,14 +20,28 @@ import type { Account, CategoriesResponse, PeriodKey, Settings } from '../types/
 /**
  * Períodos são meses de calendário fechados, não janelas móveis: "Este mês" vai
  * do dia 1 ao último dia do mês.
+ *
+ * A ordem é a da interface; os rótulos vêm do dicionário via `usePeriodOptions`.
  */
-export const PERIOD_OPTIONS: ReadonlyArray<{ key: PeriodKey; label: string; short: string }> = [
-  { key: 'month', label: 'Este mês', short: 'Este mês' },
-  { key: '3m', label: 'Últimos 3 meses', short: '3 meses' },
-  { key: '6m', label: 'Últimos 6 meses', short: '6 meses' },
-  { key: 'year', label: 'Este ano', short: 'Este ano' },
-  { key: 'all', label: 'Todo o período', short: 'Tudo' },
-];
+export const PERIOD_KEYS: readonly PeriodKey[] = ['month', '3m', '6m', 'year', 'all'];
+
+const PERIOD_LABELS: Record<PeriodKey, { label: keyof Dictionary['period']; short: keyof Dictionary['period'] }> = {
+  month: { label: 'month', short: 'monthShort' },
+  '3m': { label: 'threeMonths', short: 'threeMonthsShort' },
+  '6m': { label: 'sixMonths', short: 'sixMonthsShort' },
+  year: { label: 'year', short: 'yearShort' },
+  all: { label: 'all', short: 'allShort' },
+};
+
+export function periodOptions(
+  t: Dictionary,
+): ReadonlyArray<{ key: PeriodKey; label: string; short: string }> {
+  return PERIOD_KEYS.map((key) => ({
+    key,
+    label: t.period[PERIOD_LABELS[key].label] as string,
+    short: t.period[PERIOD_LABELS[key].short] as string,
+  }));
+}
 
 interface FinanceContextValue {
   period: PeriodKey;
@@ -47,7 +72,7 @@ const PERIOD_STORAGE_KEY = 'cifra.period';
 function readStoredPeriod(): PeriodKey {
   try {
     const stored = localStorage.getItem(PERIOD_STORAGE_KEY);
-    if (stored && PERIOD_OPTIONS.some((option) => option.key === stored)) {
+    if (stored && PERIOD_KEYS.includes(stored as PeriodKey)) {
       return stored as PeriodKey;
     }
   } catch {
@@ -57,6 +82,7 @@ function readStoredPeriod(): PeriodKey {
 }
 
 export function FinanceProvider({ children }: { children: ReactNode }) {
+  const { language, setLanguage, setCurrency } = useLanguage();
   const [period, setPeriodState] = useState<PeriodKey>(readStoredPeriod);
   // A referência sempre começa em hoje: abrir o app olhando um mês antigo seria confuso.
   const [anchor, setAnchor] = useState<string>(todayIso);
@@ -91,11 +117,40 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
   const categories = useApiResource(() => api.getCategories(), [version]);
   const accounts = useApiResource(() => api.listAccounts(), [version]);
 
+  /**
+   * Idioma e moeda abriram com o espelho em localStorage, que existe só para a
+   * primeira pintura. Quando os ajustes chegam, o servidor manda — é o que faz
+   * a escolha feita no PC valer também no celular.
+   *
+   * A comparação é com o **último valor visto do servidor**, e não com o que
+   * está em uso. Trocar na tela de ajustes muda o estado local na hora e só
+   * depois salva; enquanto o refetch não termina, `settings.data` ainda é o
+   * valor antigo, e comparar com ele reverteria a escolha do usuário no mesmo
+   * instante em que ele a faz.
+   */
+  const serverLanguage = settings.data?.language;
+  const lastServerLanguage = useRef<Language | null>(null);
+  useEffect(() => {
+    if (!serverLanguage || serverLanguage === lastServerLanguage.current) return;
+    lastServerLanguage.current = serverLanguage;
+    setLanguage(serverLanguage);
+  }, [serverLanguage, setLanguage]);
+
+  const serverCurrency = settings.data?.currency;
+  const lastServerCurrency = useRef<Currency | null>(null);
+  useEffect(() => {
+    if (!serverCurrency || serverCurrency === lastServerCurrency.current) return;
+    lastServerCurrency.current = serverCurrency;
+    setCurrency(serverCurrency);
+  }, [serverCurrency, setCurrency]);
+
   const value = useMemo<FinanceContextValue>(
     () => ({
       period,
       setPeriod,
       anchor,
+      // `language` entra na dependência porque o nome do mês sai do locale:
+      // sem ele o rótulo ficaria no idioma anterior até a próxima navegação.
       windowLabel: periodWindowLabel(period, anchor),
       goToPreviousWindow,
       goToNextWindow,
@@ -112,6 +167,7 @@ export function FinanceProvider({ children }: { children: ReactNode }) {
       period,
       setPeriod,
       anchor,
+      language,
       goToPreviousWindow,
       goToNextWindow,
       goToToday,

@@ -512,8 +512,189 @@ describe('reset total', () => {
       deletedAccounts: 0,
       deletedBudgets: 0,
       deletedRecurrences: 0,
+      deletedCategories: 0,
       clearedSettings: false,
     });
+  });
+});
+
+describe('categorias personalizadas', () => {
+  let services: Services;
+
+  beforeEach(() => {
+    services = setup();
+  });
+
+  function spend(category: string, amountCents = 5_000) {
+    return services.transactions.create({
+      type: 'expense',
+      amountCents,
+      description: 'Ração',
+      category,
+      date: TODAY,
+    });
+  }
+
+  it('aparece na lista depois das sugeridas', () => {
+    services.categories.create({ name: 'Pets', type: 'expense' });
+    const { expense } = services.categories.list();
+
+    expect(expense).toContain('Alimentação');
+    expect(expense.at(-1)).toBe('Pets');
+  });
+
+  it('recusa um nome que já é de uma sugerida, ignorando a caixa', () => {
+    expect(() => services.categories.create({ name: 'transporte', type: 'expense' })).toThrow();
+  });
+
+  it('recusa um nome repetido entre as personalizadas', () => {
+    services.categories.create({ name: 'Pets', type: 'expense' });
+    expect(() => services.categories.create({ name: ' pets ', type: 'expense' })).toThrow();
+  });
+
+  it('o mesmo nome pode existir em entrada e em saída', () => {
+    services.categories.create({ name: 'Pets', type: 'expense' });
+    expect(() => services.categories.create({ name: 'Pets', type: 'income' })).not.toThrow();
+  });
+
+  it('conta quantos lançamentos usam a categoria', () => {
+    const category = services.categories.create({ name: 'Pets', type: 'expense' });
+    spend('Pets');
+    spend('Pets');
+
+    expect(services.categories.getById(category.id).usageCount).toBe(2);
+  });
+
+  it('renomear arrasta o histórico junto, para a estatística não partir em duas', () => {
+    const category = services.categories.create({ name: 'Pets', type: 'expense' });
+    const transaction = spend('Pets');
+    services.budgets.create({ category: 'Pets', limitCents: 20_000, months: 1 });
+
+    services.categories.rename(category.id, 'Animais');
+
+    expect(services.transactions.getById(transaction.id).category).toBe('Animais');
+    expect(services.budgets.list().map((budget) => budget.category)).toEqual(['Animais']);
+    expect(services.categories.getById(category.id).usageCount).toBe(1);
+  });
+
+  it('renomear não encosta em outro tipo com o mesmo nome', () => {
+    const expenseCategory = services.categories.create({ name: 'Pets', type: 'expense' });
+    services.categories.create({ name: 'Pets', type: 'income' });
+    const income = services.transactions.create({
+      type: 'income',
+      amountCents: 9_000,
+      description: 'Adestramento',
+      category: 'Pets',
+      date: TODAY,
+    });
+
+    services.categories.rename(expenseCategory.id, 'Animais');
+
+    expect(services.transactions.getById(income.id).category).toBe('Pets');
+  });
+
+  it('recusa apagar uma categoria em uso sem destino', () => {
+    const category = services.categories.create({ name: 'Pets', type: 'expense' });
+    spend('Pets');
+
+    expect(() => services.categories.remove(category.id)).toThrow();
+    expect(services.categories.listCustom()).toHaveLength(1);
+  });
+
+  it('apaga movendo os lançamentos para o destino escolhido', () => {
+    const category = services.categories.create({ name: 'Pets', type: 'expense' });
+    const transaction = spend('Pets');
+
+    services.categories.remove(category.id, 'Outros');
+
+    expect(services.transactions.getById(transaction.id).category).toBe('Outros');
+    expect(services.categories.listCustom()).toHaveLength(0);
+  });
+
+  it('ao mover para uma categoria que já tem limite, o limite órfão some', () => {
+    const category = services.categories.create({ name: 'Pets', type: 'expense' });
+    spend('Pets');
+    services.budgets.create({ category: 'Pets', limitCents: 20_000, months: 1 });
+    services.budgets.create({ category: 'Outros', limitCents: 50_000, months: 1 });
+
+    services.categories.remove(category.id, 'Outros');
+
+    expect(services.budgets.list().map((budget) => budget.category)).toEqual(['Outros']);
+  });
+
+  it('uma categoria sem uso é apagada direto', () => {
+    const category = services.categories.create({ name: 'Pets', type: 'expense' });
+    expect(() => services.categories.remove(category.id)).not.toThrow();
+    expect(services.categories.listCustom()).toHaveLength(0);
+  });
+});
+
+describe('idioma da interface', () => {
+  it('começa em português', () => {
+    expect(setup().settings.get().language).toBe('pt');
+  });
+
+  it('guarda a escolha', () => {
+    const services = setup();
+    expect(services.settings.update({ language: 'es' }).language).toBe('es');
+    expect(services.settings.get().language).toBe('es');
+  });
+
+  it('um valor estranho no banco volta ao padrão em vez de quebrar a tela', () => {
+    const services = setup();
+    services.db
+      .prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
+      .run('language', 'klingon', new Date().toISOString());
+
+    expect(services.settings.get().language).toBe('pt');
+  });
+});
+
+describe('moeda de exibição', () => {
+  it('começa em real', () => {
+    expect(setup().settings.get().currency).toBe('BRL');
+  });
+
+  it('guarda a escolha', () => {
+    const services = setup();
+    expect(services.settings.update({ currency: 'USD' }).currency).toBe('USD');
+    expect(services.settings.get().currency).toBe('USD');
+  });
+
+  it('uma moeda que saiu da lista volta ao padrão', () => {
+    const services = setup();
+    services.db
+      .prepare('INSERT INTO settings (key, value, updated_at) VALUES (?, ?, ?)')
+      .run('currency', 'XYZ', new Date().toISOString());
+
+    expect(services.settings.get().currency).toBe('BRL');
+  });
+
+  it('trocar de moeda não encosta em nenhum valor guardado', () => {
+    const services = setup();
+    services.settings.update({ initialBalanceCents: 1_000_000 });
+    const transaction = services.transactions.create({
+      type: 'expense',
+      amountCents: 8_000,
+      description: 'Combustível',
+      category: 'Transporte',
+      date: TODAY,
+    });
+
+    services.settings.update({ currency: 'USD' });
+
+    expect(services.transactions.getById(transaction.id).amountCents).toBe(8_000);
+    expect(services.settings.get().initialBalanceCents).toBe(1_000_000);
+    expect(services.analytics.currentBalanceCents()).toBe(992_000);
+  });
+
+  it('idioma e moeda são independentes', () => {
+    const services = setup();
+    services.settings.update({ language: 'en', currency: 'BRL' });
+    const settings = services.settings.get();
+
+    expect(settings.language).toBe('en');
+    expect(settings.currency).toBe('BRL');
   });
 });
 

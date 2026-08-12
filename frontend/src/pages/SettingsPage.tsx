@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { PageHeader } from '../components/layout/AppShell';
+import { CategoriesCard } from '../components/settings/CategoriesCard';
 import { Card, CardHeader } from '../components/ui/Card';
 import { Button } from '../components/ui/Button';
 import { Field, TextInput } from '../components/ui/Field';
@@ -9,24 +10,23 @@ import { SegmentedControl } from '../components/ui/SegmentedControl';
 import { IconTrash } from '../components/ui/Icons';
 import { useFinance } from '../context/FinanceContext';
 import { useToast } from '../context/ToastContext';
+import { LANGUAGES, LANGUAGE_NAMES, useLanguage, useT, type Language } from '../i18n';
 import { useTheme, type Theme } from '../hooks/useTheme';
 import { useApiResource } from '../hooks/useApiResource';
 import { api, ApiError, RESET_CONFIRMATION } from '../lib/api';
-
-const THEME_OPTIONS: ReadonlyArray<{ value: Theme; label: string }> = [
-  { value: 'light', label: 'Claro' },
-  { value: 'dark', label: 'Escuro' },
-];
+import { CURRENCIES, type Currency } from '../types/api';
 
 export function SettingsPage() {
+  const t = useT();
+
   return (
     <>
-      <PageHeader
-        title="Ajustes"
-        description="Preferências do aplicativo e gerenciamento dos seus dados."
-      />
+      <PageHeader title={t.settings.title} description={t.settings.subtitle} />
       <div className="flex max-w-2xl flex-col gap-4 sm:gap-6">
         <AppearanceCard />
+        <LanguageCard />
+        <CurrencyCard />
+        <CategoriesCard />
         <DataCard />
         <ResetCard />
       </div>
@@ -36,14 +36,20 @@ export function SettingsPage() {
 
 function AppearanceCard() {
   const { theme, toggleTheme } = useTheme();
+  const t = useT();
+
+  const themeOptions: ReadonlyArray<{ value: Theme; label: string }> = [
+    { value: 'light', label: t.settings.light },
+    { value: 'dark', label: t.settings.dark },
+  ];
 
   return (
     <Card>
-      <CardHeader title="Aparência" description="O tema fica salvo neste navegador." />
+      <CardHeader title={t.settings.appearance} description={t.settings.appearanceDescription} />
       <div className="px-5 pt-5 pb-6 sm:px-6">
         <SegmentedControl
-          ariaLabel="Tema da interface"
-          options={THEME_OPTIONS}
+          ariaLabel={t.settings.themeLabel}
+          options={themeOptions}
           value={theme}
           onChange={(next) => {
             if (next !== theme) toggleTheme();
@@ -54,27 +60,125 @@ function AppearanceCard() {
   );
 }
 
-function DataCard() {
+/**
+ * O idioma vive nos ajustes do servidor, e não no navegador como o tema: assim
+ * a escolha feita no computador vale também quando o app é aberto pelo celular.
+ * A troca é aplicada na hora e só depois salva — esperar a resposta da rede para
+ * ver a interface mudar pareceria travamento.
+ */
+function LanguageCard() {
+  const { refresh } = useFinance();
+  const { notify } = useToast();
+  const t = useT();
+  const { language, setLanguage } = useLanguage();
+  const [saving, setSaving] = useState(false);
+
+  async function change(next: Language): Promise<void> {
+    if (next === language) return;
+
+    const previous = language;
+    setLanguage(next);
+    setSaving(true);
+    try {
+      await api.updateSettings({ language: next });
+      refresh();
+    } catch (error) {
+      setLanguage(previous);
+      notify(error instanceof ApiError ? error.message : t.settings.languageFailed, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
   return (
     <Card>
-      <CardHeader
-        title="Seus dados"
-        description="Tudo fica em um arquivo SQLite no seu computador. Nada é enviado para a internet."
-      />
+      <CardHeader title={t.settings.language} description={t.settings.languageDescription} />
+      <div className="px-5 pt-5 pb-6 sm:px-6">
+        <SegmentedControl
+          ariaLabel={t.settings.languageLabel}
+          // Cada idioma aparece escrito nele mesmo: é assim que alguém que não
+          // entende a língua atual encontra a sua.
+          options={LANGUAGES.map((value) => ({ value, label: LANGUAGE_NAMES[value] }))}
+          value={language}
+          onChange={(next) => void change(next)}
+          disabled={saving}
+        />
+      </div>
+    </Card>
+  );
+}
+
+/**
+ * Moeda de exibição. Segue o mesmo caminho do idioma — troca local imediata,
+ * gravação depois — e traz um aviso explícito de que nada é convertido: quem lê
+ * "US$" onde antes lia "R$" precisa saber que o número por trás não mudou.
+ */
+function CurrencyCard() {
+  const { refresh } = useFinance();
+  const { notify } = useToast();
+  const t = useT();
+  const { currency, setCurrency } = useLanguage();
+  const [saving, setSaving] = useState(false);
+
+  async function change(next: Currency): Promise<void> {
+    if (next === currency) return;
+
+    const previous = currency;
+    setCurrency(next);
+    setSaving(true);
+    try {
+      await api.updateSettings({ currency: next });
+      refresh();
+    } catch (error) {
+      setCurrency(previous);
+      notify(error instanceof ApiError ? error.message : t.settings.currencyFailed, 'error');
+    } finally {
+      setSaving(false);
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader title={t.settings.currency} description={t.settings.currencyDescription} />
+      {/* `items-start` para o seletor não esticar na largura do card: numa coluna
+          flex os filhos crescem por padrão, e ele ficaria diferente dos outros. */}
+      <div className="flex flex-col items-start gap-4 px-5 pt-5 pb-6 sm:px-6">
+        <SegmentedControl
+          ariaLabel={t.settings.currencyLabel}
+          options={CURRENCIES.map((value) => ({ value, label: t.currencies[value] }))}
+          value={currency}
+          onChange={(next) => void change(next)}
+          disabled={saving}
+        />
+        <p className="rounded-xl bg-surface-inset px-4 py-3 text-[13px] leading-relaxed text-ink-2">
+          {t.settings.currencyNote}
+        </p>
+      </div>
+    </Card>
+  );
+}
+
+function DataCard() {
+  const t = useT();
+
+  return (
+    <Card>
+      <CardHeader title={t.settings.dataTitle} description={t.settings.dataDescription} />
       <div className="space-y-3 px-5 pt-5 pb-6 text-[13px] leading-relaxed text-ink-2 sm:px-6">
         <p>
-          O banco fica em{' '}
-          <code className="rounded bg-surface-inset px-1.5 py-0.5">data/finance.sqlite</code>, na
-          pasta do projeto. Faça uma cópia desse arquivo para ter um backup.
+          {t.settings.dataWhere}{' '}
+          <code className="rounded bg-surface-inset px-1.5 py-0.5">data/finance.sqlite</code>
+          {t.settings.dataWhereEnd}
         </p>
         <p>
-          Para carregar dados de demonstração, rode{' '}
-          <code className="rounded bg-surface-inset px-1.5 py-0.5">npm run seed</code> no terminal.
+          {t.settings.dataSeed}{' '}
+          <code className="rounded bg-surface-inset px-1.5 py-0.5">npm run seed</code>{' '}
+          {t.settings.dataSeedEnd}
         </p>
         <p>
-          Seu saldo inicial e suas contas ficam em{' '}
+          {t.settings.dataBalance}{' '}
           <Link to="/usuario" className="font-medium text-accent underline-offset-4 hover:underline">
-            Usuário
+            {t.nav.profile}
           </Link>
           .
         </p>
@@ -87,6 +191,7 @@ function ResetCard() {
   const { refresh, version } = useFinance();
   const { notify } = useToast();
   const navigate = useNavigate();
+  const t = useT();
 
   const transactions = useApiResource(() => api.listTransactions({ limit: 1 }), [version]);
   const total = transactions.data?.total ?? 0;
@@ -115,17 +220,11 @@ function ResetCard() {
       navigate('/');
       notify(
         result.deletedTransactions > 0
-          ? `Tudo apagado — ${result.deletedTransactions} ${
-              result.deletedTransactions === 1 ? 'transação removida' : 'transações removidas'
-            }`
-          : 'Tudo apagado',
+          ? t.settings.resetDoneCount(result.deletedTransactions)
+          : t.settings.resetDone,
       );
     } catch (cause) {
-      setError(
-        cause instanceof ApiError
-          ? cause.message
-          : 'Não foi possível apagar os dados. Tente novamente.',
-      );
+      setError(cause instanceof ApiError ? cause.message : t.settings.resetFailed);
     } finally {
       setResetting(false);
     }
@@ -134,20 +233,17 @@ function ResetCard() {
   return (
     <>
       <Card className="border-expense/30">
-        <CardHeader
-          title="Resetar tudo"
-          description="Apaga todas as transações, contas e o saldo inicial. O aplicativo volta ao estado de primeira execução."
-        />
+        <CardHeader title={t.settings.resetTitle} description={t.settings.resetDescription} />
         <div className="flex flex-wrap items-center justify-between gap-3 px-5 pt-5 pb-6 sm:px-6">
           <p className="text-[13px] text-ink-3">
             {transactions.isInitialLoading
-              ? 'Verificando seus dados…'
+              ? t.settings.resetChecking
               : total === 0
-                ? 'Não há nada para apagar no momento.'
-                : `${total} ${total === 1 ? 'transação será apagada' : 'transações serão apagadas'}. Esta ação não pode ser desfeita.`}
+                ? t.settings.resetNothing
+                : t.settings.resetCount(total)}
           </p>
           <Button variant="danger" icon={<IconTrash />} onClick={openDialog}>
-            Resetar tudo
+            {t.settings.resetButton}
           </Button>
         </div>
       </Card>
@@ -156,15 +252,15 @@ function ResetCard() {
         open={open}
         onClose={() => setOpen(false)}
         size="sm"
-        title="Apagar todos os dados?"
-        description="Transações, contas e saldo inicial serão removidos do banco. Não há como desfazer."
+        title={t.settings.resetDialogTitle}
+        description={t.settings.resetDialogDescription}
         footer={
           <>
             <Button variant="ghost" onClick={() => setOpen(false)} disabled={resetting}>
-              Cancelar
+              {t.common.cancel}
             </Button>
             <Button variant="danger" onClick={handleReset} loading={resetting} disabled={!canReset}>
-              Apagar tudo
+              {t.settings.resetConfirm}
             </Button>
           </>
         }
@@ -173,13 +269,14 @@ function ResetCard() {
           <ul className="space-y-1.5 rounded-xl bg-surface-2 px-4 py-3 text-[13px] text-ink-2">
             <li>
               <strong className="font-semibold text-ink">{total}</strong>{' '}
-              {total === 1 ? 'transação' : 'transações'} do histórico
+              {t.settings.resetItemTransactions(total)} {t.settings.resetItemHistory}
             </li>
-            <li>As contas cadastradas</li>
-            <li>O saldo inicial configurado</li>
+            <li>{t.settings.resetItemAccounts}</li>
+            <li>{t.settings.resetItemCategories}</li>
+            <li>{t.settings.resetItemBalance}</li>
           </ul>
 
-          <Field label={`Digite ${RESET_CONFIRMATION} para confirmar`} error={error ?? undefined}>
+          <Field label={t.settings.resetConfirmLabel(RESET_CONFIRMATION)} error={error ?? undefined}>
             {({ id, describedBy, invalid }) => (
               <TextInput
                 id={id}

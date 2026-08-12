@@ -1,5 +1,6 @@
 import { Area, AreaChart, CartesianGrid, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts';
 import { CHART_COLORS, xAxisProps, yAxisProps } from './chartTheme';
+import { useT } from '../../i18n';
 import { formatBucket, formatCompactCurrency, formatCurrency } from '../../lib/format';
 import type { SeriesPoint } from '../../types/api';
 
@@ -28,6 +29,8 @@ function BalanceTooltip({
  * então não há legenda — só o valor final rotulado no eixo.
  */
 export function BalanceChart({ series, height = 240 }: { series: SeriesPoint[]; height?: number }) {
+  const t = useT();
+
   return (
     <ResponsiveContainer width="100%" height={height}>
       <AreaChart data={series} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
@@ -47,7 +50,7 @@ export function BalanceChart({ series, height = 240 }: { series: SeriesPoint[]; 
         <Area
           type="monotone"
           dataKey="balanceCents"
-          name="Saldo"
+          name={t.charts.balance}
           stroke={CHART_COLORS.balance}
           strokeWidth={2}
           fill="url(#balance-fill)"
@@ -60,13 +63,15 @@ export function BalanceChart({ series, height = 240 }: { series: SeriesPoint[]; 
 }
 
 export function BalanceTable({ series }: { series: SeriesPoint[] }) {
+  const t = useT();
+
   return (
     <div className="max-h-72 overflow-y-auto">
       <table className="w-full text-[13px]">
         <thead className="sticky top-0 bg-surface">
           <tr className="text-left text-ink-3">
-            <th className="py-2 font-medium">Data</th>
-            <th className="py-2 text-right font-medium">Saldo</th>
+            <th className="py-2 font-medium">{t.charts.date}</th>
+            <th className="py-2 text-right font-medium">{t.charts.balance}</th>
           </tr>
         </thead>
         <tbody className="tnum">

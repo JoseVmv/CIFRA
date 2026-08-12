@@ -7,6 +7,8 @@ import { IconPause, IconPencil, IconPlay, IconPlus, IconRepeat, IconTrash } from
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
 import { useApiResource } from '../../hooks/useApiResource';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
 import { api, ApiError } from '../../lib/api';
 import { formatDayMonth, formatSigned } from '../../lib/format';
 import { describeSchedule, toRecurrenceInput } from '../../lib/recurrence';
@@ -20,6 +22,7 @@ import type { Recurrence } from '../../types/api';
 export function RecurrencesCard() {
   const { version, refresh } = useFinance();
   const { notify } = useToast();
+  const t = useT();
 
   const recurrences = useApiResource(() => api.listRecurrences(), [version]);
   const [editing, setEditing] = useState<Recurrence | null>(null);
@@ -43,26 +46,20 @@ export function RecurrencesCard() {
         ...toRecurrenceInput(recurrence),
         active: !recurrence.active,
       });
-      notify(recurrence.active ? 'Recorrência pausada' : 'Recorrência retomada');
+      notify(recurrence.active ? t.recurrences.pausedToast : t.recurrences.resumedToast);
       refresh();
     } catch (error) {
-      notify(
-        error instanceof ApiError ? error.message : 'Não foi possível alterar a recorrência.',
-        'error',
-      );
+      notify(error instanceof ApiError ? error.message : t.recurrences.toggleFailed, 'error');
     }
   }
 
   async function remove(recurrence: Recurrence): Promise<void> {
     try {
       await api.deleteRecurrence(recurrence.id);
-      notify(`Recorrência "${recurrence.description}" removida`);
+      notify(t.recurrences.removed(recurrence.description));
       refresh();
     } catch (error) {
-      notify(
-        error instanceof ApiError ? error.message : 'Não foi possível remover a recorrência.',
-        'error',
-      );
+      notify(error instanceof ApiError ? error.message : t.recurrences.removeFailed, 'error');
     }
   }
 
@@ -70,12 +67,12 @@ export function RecurrencesCard() {
     <>
       <Card>
         <CardHeader
-          title="Lançamentos recorrentes"
-          description="O app registra sozinho quando a data chega — salário, aluguel, assinaturas."
+          title={t.recurrences.title}
+          description={t.recurrences.subtitle}
           action={
             items.length > 0 && (
               <Button size="sm" variant="secondary" icon={<IconPlus />} onClick={openNew}>
-                Nova recorrência
+                {t.recurrences.newRecurrence}
               </Button>
             )
           }
@@ -91,11 +88,11 @@ export function RecurrencesCard() {
           ) : items.length === 0 ? (
             <EmptyState
               icon={<IconRepeat />}
-              title="Nenhuma recorrência"
-              description="Cadastre o que se repete todo mês e não precise lançar de novo. Você continua podendo editar ou apagar cada transação criada."
+              title={t.recurrences.emptyTitle}
+              description={t.recurrences.emptyDescription}
               action={
                 <Button variant="primary" icon={<IconPlus />} onClick={openNew}>
-                  Criar recorrência
+                  {t.recurrences.createRecurrence}
                 </Button>
               }
               className="py-6"
@@ -133,6 +130,8 @@ interface RecurrenceRowProps {
 }
 
 function RecurrenceRow({ recurrence, onEdit, onToggle, onRemove }: RecurrenceRowProps) {
+  const t = useT();
+  const { language } = useLanguage();
   const income = recurrence.type === 'income';
 
   return (
@@ -140,9 +139,9 @@ function RecurrenceRow({ recurrence, onEdit, onToggle, onRemove }: RecurrenceRow
       <div className={cn('min-w-0 flex-1', !recurrence.active && 'opacity-55')}>
         <p className="truncate text-sm font-medium text-ink">{recurrence.description}</p>
         <p className="mt-0.5 truncate text-[12px] text-ink-3">
-          {describeSchedule(recurrence)}
+          {describeSchedule(recurrence, t)}
           <span aria-hidden> · </span>
-          {recurrence.category}
+          {categoryLabel(recurrence.category, language)}
           {recurrence.accountName && (
             <>
               <span aria-hidden> · </span>
@@ -164,10 +163,10 @@ function RecurrenceRow({ recurrence, onEdit, onToggle, onRemove }: RecurrenceRow
         </span>
         <span className="text-[11px] text-ink-3">
           {!recurrence.active
-            ? 'Pausada'
+            ? t.recurrences.paused
             : recurrence.nextDate
-              ? `Próximo em ${formatDayMonth(recurrence.nextDate)}`
-              : 'Encerrada'}
+              ? t.recurrences.nextOn(formatDayMonth(recurrence.nextDate))
+              : t.recurrences.ended}
         </span>
       </div>
 
@@ -175,8 +174,8 @@ function RecurrenceRow({ recurrence, onEdit, onToggle, onRemove }: RecurrenceRow
         <IconButton
           label={
             recurrence.active
-              ? `Pausar recorrência ${recurrence.description}`
-              : `Retomar recorrência ${recurrence.description}`
+              ? t.recurrences.pauseLabel(recurrence.description)
+              : t.recurrences.resumeLabel(recurrence.description)
           }
           className="size-8"
           onClick={onToggle}
@@ -184,14 +183,14 @@ function RecurrenceRow({ recurrence, onEdit, onToggle, onRemove }: RecurrenceRow
           {recurrence.active ? <IconPause /> : <IconPlay />}
         </IconButton>
         <IconButton
-          label={`Editar recorrência ${recurrence.description}`}
+          label={t.recurrences.editLabel(recurrence.description)}
           className="size-8"
           onClick={onEdit}
         >
           <IconPencil />
         </IconButton>
         <IconButton
-          label={`Remover recorrência ${recurrence.description}`}
+          label={t.recurrences.removeLabel(recurrence.description)}
           className="size-8 hover:bg-expense-soft hover:text-expense-text"
           onClick={onRemove}
         >

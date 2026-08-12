@@ -1,4 +1,5 @@
 import type { ReactNode } from 'react';
+import { useT } from '../../i18n';
 import { cn } from '../../lib/cn';
 
 interface EmptyStateProps {
@@ -43,6 +44,8 @@ interface ErrorStateProps {
 }
 
 export function ErrorState({ message, onRetry, className }: ErrorStateProps) {
+  const t = useT();
+
   return (
     <div className={cn('flex flex-col items-center gap-3 px-6 py-12 text-center', className)}>
       <p className="text-sm text-ink">{message}</p>
@@ -52,7 +55,7 @@ export function ErrorState({ message, onRetry, className }: ErrorStateProps) {
           onClick={onRetry}
           className="text-[13px] font-medium text-accent underline underline-offset-4 hover:opacity-80"
         >
-          Tentar novamente
+          {t.common.retry}
         </button>
       )}
     </div>

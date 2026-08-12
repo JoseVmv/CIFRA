@@ -3,9 +3,12 @@ import { Modal } from '../ui/Modal';
 import { Button } from '../ui/Button';
 import { Field, Select, TextInput } from '../ui/Field';
 import { SegmentedControl } from '../ui/SegmentedControl';
-import { PERIOD_OPTIONS, useFinance } from '../../context/FinanceContext';
+import { periodOptions, useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
 import { useApiResource } from '../../hooks/useApiResource';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel, compareByLabel } from '../../i18n/categories';
+import type { Dictionary } from '../../i18n/pt';
 import { api, ApiError } from '../../lib/api';
 import { todayIso } from '../../lib/format';
 import { periodWindow, periodWindowLabel, startOfMonth } from '../../lib/months';
@@ -13,7 +16,7 @@ import {
   buildExport,
   downloadFile,
   fileNameOf,
-  FORMAT_OPTIONS,
+  formatOptions,
   mimeTypeOf,
   printDocument,
   type ExportFilters,
@@ -24,13 +27,6 @@ import type { PeriodKey, TransactionQuery, TransactionType } from '../../types/a
 type PeriodChoice = PeriodKey | 'custom';
 type TypeChoice = TransactionType | '';
 type Order = 'desc' | 'asc';
-
-const TYPE_OPTIONS: ReadonlyArray<{ value: TypeChoice; label: string }> = [
-  { value: '', label: 'Tudo' },
-  { value: 'income', label: 'Entradas' },
-  { value: 'expense', label: 'Saídas' },
-  { value: 'transfer', label: 'Transferências' },
-];
 
 interface FormState {
   period: PeriodChoice;
@@ -62,6 +58,15 @@ interface ExportDialogProps {
 export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
   const { anchor, categories, settings, accounts, version } = useFinance();
   const { notify } = useToast();
+  const t = useT();
+  const { language, locale, currency } = useLanguage();
+
+  const typeOptions: ReadonlyArray<{ value: TypeChoice; label: string }> = [
+    { value: '', label: t.exportDialog.everything },
+    { value: 'income', label: t.type.incomePlural },
+    { value: 'expense', label: t.type.expensePlural },
+    { value: 'transfer', label: t.type.transferPlural },
+  ];
 
   const useAccounts = (settings?.useMultipleAccounts ?? false) && (accounts?.length ?? 0) > 0;
 
@@ -100,7 +105,8 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
 
   const total = preview.data?.total ?? 0;
   const isCsv = state.format === 'csv-excel' || state.format === 'csv-padrao';
-  const formatHint = FORMAT_OPTIONS.find((option) => option.value === state.format)?.hint;
+  const formats = formatOptions(t);
+  const formatHint = formats.find((option) => option.value === state.format)?.hint;
 
   const categoryOptions = useMemo(() => {
     if (!categories) return [];
@@ -108,16 +114,16 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
     if (state.type === 'transfer') return [];
     if (state.type) return categories[state.type];
     return [...new Set([...categories.income, ...categories.expense])].sort((a, b) =>
-      a.localeCompare(b, 'pt-BR'),
+      compareByLabel(a, b, language, locale),
     );
-  }, [categories, state.type]);
+  }, [categories, state.type, language, locale]);
 
   const filters = useMemo<ExportFilters>(
     () => ({
       periodLabel:
         state.period === 'custom'
-          ? `${range.from ?? 'início'} a ${range.to ?? 'hoje'}`
-          : periodLabelOf(state.period, anchor),
+          ? `${range.from ?? ''} – ${range.to ?? todayIso()}`
+          : periodLabelOf(state.period, anchor, t),
       from: range.from,
       to: range.to,
       type: state.type,
@@ -125,7 +131,7 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
       accountName: accounts?.find((account) => account.id === state.accountId)?.name ?? '',
       search: debouncedSearch,
     }),
-    [state, range, anchor, accounts, debouncedSearch],
+    [state, range, anchor, accounts, debouncedSearch, t],
   );
 
   const fileName = fileNameOf(state.format, filters, todayIso());
@@ -141,7 +147,7 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
     try {
       const items = await api.listAllTransactions(query);
       if (items.length === 0) {
-        setError('Nenhuma transação neste recorte. Ajuste os filtros e tente de novo.');
+        setError(t.exportDialog.emptyError);
         return;
       }
 
@@ -151,22 +157,21 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
         transactions,
         filters,
         includeTotals: isCsv && state.includeTotals,
+        t,
+        language,
+        currency,
       });
 
       if (state.format === 'pdf') {
         printDocument(content);
-        notify('Extrato pronto para imprimir');
+        notify(t.exportDialog.printReady);
       } else {
         downloadFile(content, fileName, mimeTypeOf(state.format));
-        notify(`${items.length} ${items.length === 1 ? 'transação exportada' : 'transações exportadas'}`);
+        notify(t.exportDialog.exported(items.length));
       }
       onClose();
     } catch (cause) {
-      setError(
-        cause instanceof ApiError
-          ? cause.message
-          : 'Não foi possível gerar o arquivo. Tente novamente.',
-      );
+      setError(cause instanceof ApiError ? cause.message : t.exportDialog.failed);
     } finally {
       setExporting(false);
     }
@@ -176,12 +181,12 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
     <Modal
       open={open}
       onClose={onClose}
-      title="Exportar transações"
-      description="Escolha o recorte e o formato. O arquivo é gerado no seu computador."
+      title={t.exportDialog.title}
+      description={t.exportDialog.description}
       footer={
         <>
           <Button type="button" variant="ghost" onClick={onClose} disabled={exporting}>
-            Cancelar
+            {t.common.cancel}
           </Button>
           <Button
             type="button"
@@ -190,13 +195,13 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
             disabled={total === 0}
             onClick={() => void handleExport()}
           >
-            {state.format === 'pdf' ? 'Abrir impressão' : 'Baixar arquivo'}
+            {state.format === 'pdf' ? t.exportDialog.openPrint : t.exportDialog.download}
           </Button>
         </>
       }
     >
       <div className="flex flex-col gap-5">
-        <Field label="Formato" hint={formatHint}>
+        <Field label={t.exportDialog.format} hint={formatHint}>
           {({ id, describedBy }) => (
             <Select
               id={id}
@@ -204,7 +209,7 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
               value={state.format}
               onChange={(event) => update('format', event.target.value as ExportFormat)}
             >
-              {FORMAT_OPTIONS.map((option) => (
+              {formats.map((option) => (
                 <option key={option.value} value={option.value}>
                   {option.label}
                 </option>
@@ -213,26 +218,26 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
           )}
         </Field>
 
-        <Field label="Período">
+        <Field label={t.exportDialog.period}>
           {({ id }) => (
             <Select
               id={id}
               value={state.period}
               onChange={(event) => update('period', event.target.value as PeriodChoice)}
             >
-              {PERIOD_OPTIONS.map((option) => (
+              {periodOptions(t).map((option) => (
                 <option key={option.key} value={option.key}>
-                  {periodLabelOf(option.key, anchor)}
+                  {periodLabelOf(option.key, anchor, t)}
                 </option>
               ))}
-              <option value="custom">Datas específicas…</option>
+              <option value="custom">{t.exportDialog.customDates}</option>
             </Select>
           )}
         </Field>
 
         {state.period === 'custom' && (
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="De">
+            <Field label={t.exportDialog.from}>
               {({ id }) => (
                 <TextInput
                   id={id}
@@ -243,7 +248,7 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
                 />
               )}
             </Field>
-            <Field label="Até">
+            <Field label={t.exportDialog.to}>
               {({ id }) => (
                 <TextInput
                   id={id}
@@ -258,58 +263,58 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
         )}
 
         <div className="flex flex-col gap-1.5">
-          <span className="text-[13px] font-medium text-ink-2">O que exportar</span>
+          <span className="text-[13px] font-medium text-ink-2">{t.exportDialog.whatToExport}</span>
           <SegmentedControl
-            ariaLabel="O que exportar"
+            ariaLabel={t.exportDialog.whatToExport}
             size="md"
             className="w-full"
-            options={TYPE_OPTIONS}
+            options={typeOptions}
             value={state.type}
             onChange={(type) => setState((current) => ({ ...current, type, category: '' }))}
           />
         </div>
 
         <div className="grid gap-5 sm:grid-cols-2">
-          <Field label="Categoria">
+          <Field label={t.transactionDialog.category}>
             {({ id }) => (
               <Select
                 id={id}
                 value={state.category}
                 onChange={(event) => update('category', event.target.value)}
               >
-                <option value="">Todas</option>
+                <option value="">{t.common.all}</option>
                 {categoryOptions.map((category) => (
                   <option key={category} value={category}>
-                    {category}
+                    {categoryLabel(category, language)}
                   </option>
                 ))}
               </Select>
             )}
           </Field>
 
-          <Field label="Ordem">
+          <Field label={t.exportDialog.order}>
             {({ id }) => (
               <Select
                 id={id}
                 value={state.order}
                 onChange={(event) => update('order', event.target.value as Order)}
               >
-                <option value="desc">Mais recentes primeiro</option>
-                <option value="asc">Mais antigas primeiro</option>
+                <option value="desc">{t.exportDialog.newestFirst}</option>
+                <option value="asc">{t.exportDialog.oldestFirst}</option>
               </Select>
             )}
           </Field>
         </div>
 
         {useAccounts && (
-          <Field label="Conta">
+          <Field label={t.transactionDialog.account}>
             {({ id }) => (
               <Select
                 id={id}
                 value={state.accountId}
                 onChange={(event) => update('accountId', event.target.value)}
               >
-                <option value="">Todas as contas</option>
+                <option value="">{t.transactions.allAccounts}</option>
                 {(accounts ?? []).map((account) => (
                   <option key={account.id} value={account.id}>
                     {account.name}
@@ -320,7 +325,7 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
           </Field>
         )}
 
-        <Field label="Busca na descrição" hint="Opcional. Ignora acentos e maiúsculas.">
+        <Field label={t.exportDialog.searchLabel} hint={t.exportDialog.searchHint}>
           {({ id, describedBy }) => (
             <TextInput
               id={id}
@@ -328,7 +333,7 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
               type="search"
               maxLength={120}
               autoComplete="off"
-              placeholder="Ex.: mercado"
+              placeholder={t.exportDialog.searchPlaceholder}
               value={search}
               onChange={(event) => setSearch(event.target.value)}
             />
@@ -343,23 +348,23 @@ export function ExportDialog({ open, onClose, defaults }: ExportDialogProps) {
               onChange={(event) => update('includeTotals', event.target.checked)}
               className="size-4 accent-[var(--accent)]"
             />
-            Incluir uma linha de totais no fim
+            {t.exportDialog.includeTotals}
           </label>
         )}
 
         <div className="rounded-xl bg-surface-inset px-4 py-3 text-[13px] text-ink-2">
           {preview.isInitialLoading ? (
-            'Contando as transações…'
+            t.exportDialog.counting
           ) : total === 0 ? (
-            'Nenhuma transação neste recorte.'
+            t.exportDialog.emptySelection
           ) : (
             <>
               <strong className="font-medium text-ink">{total}</strong>{' '}
-              {total === 1 ? 'transação será exportada' : 'transações serão exportadas'}
+              {t.exportDialog.willExport(total)}
               {state.format !== 'pdf' && (
                 <>
                   {' '}
-                  em <span className="break-all">{fileName}</span>
+                  {t.exportDialog.inFile} <span className="break-all">{fileName}</span>
                 </>
               )}
               .
@@ -394,8 +399,8 @@ function initialState(defaults: ExportDefaults, anchor: string): FormState {
   };
 }
 
-function periodLabelOf(period: PeriodKey, anchor: string): string {
-  return period === 'all' ? 'Todo o período' : periodWindowLabel(period, anchor);
+function periodLabelOf(period: PeriodKey, anchor: string, t: Dictionary): string {
+  return period === 'all' ? t.period.all : periodWindowLabel(period, anchor);
 }
 
 /** O intervalo que a escolha de período representa, para o nome e o cabeçalho. */

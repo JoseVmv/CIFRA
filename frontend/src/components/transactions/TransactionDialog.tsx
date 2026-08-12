@@ -6,23 +6,15 @@ import { Field, Select, TextInput } from '../ui/Field';
 import { SegmentedControl } from '../ui/SegmentedControl';
 import { useFinance } from '../../context/FinanceContext';
 import { useToast } from '../../context/ToastContext';
+import { useLanguage, useT } from '../../i18n';
+import { categoryLabel } from '../../i18n/categories';
+import type { Dictionary } from '../../i18n/pt';
 import { api, ApiError } from '../../lib/api';
 import { formatCurrency, todayIso } from '../../lib/format';
 import { TRANSFER_CATEGORY, type Transaction, type TransactionType } from '../../types/api';
 
 const MAX_DESCRIPTION = 140;
 const MAX_INSTALLMENTS = 48;
-
-const TYPE_OPTIONS: ReadonlyArray<{ value: TransactionType; label: string }> = [
-  { value: 'income', label: 'Entrada' },
-  { value: 'expense', label: 'Saída' },
-  { value: 'transfer', label: 'Transferência' },
-];
-
-const AMOUNT_IS_OPTIONS = [
-  { value: 'total' as const, label: 'Valor total' },
-  { value: 'installment' as const, label: 'Valor da parcela' },
-];
 
 interface FormState {
   type: TransactionType;
@@ -76,26 +68,27 @@ function initialState(transaction: Transaction | null, type: TransactionType): F
   };
 }
 
-function validate(state: FormState, requiresAccount: boolean): FormErrors {
+function validate(state: FormState, requiresAccount: boolean, t: Dictionary): FormErrors {
   const errors: FormErrors = {};
   const isTransfer = state.type === 'transfer';
+  const d = t.transactionDialog;
 
-  if (state.amountCents <= 0) errors.amountCents = 'Informe um valor maior que zero.';
-  if (!state.description.trim()) errors.description = 'Descreva a transação.';
+  if (state.amountCents <= 0) errors.amountCents = d.errorAmount;
+  if (!state.description.trim()) errors.description = d.errorDescription;
   else if (state.description.trim().length > MAX_DESCRIPTION)
-    errors.description = `Use no máximo ${MAX_DESCRIPTION} caracteres.`;
-  if (!isTransfer && !state.category) errors.category = 'Escolha uma categoria.';
+    errors.description = d.errorDescriptionLong(MAX_DESCRIPTION);
+  if (!isTransfer && !state.category) errors.category = d.errorCategory;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(state.date) || Number.isNaN(Date.parse(state.date)))
-    errors.date = 'Informe uma data válida.';
+    errors.date = d.errorDate;
 
   if (isTransfer) {
     // Numa transferência a conta deixa de ser opcional: ela é o próprio sentido.
-    if (!state.accountId) errors.accountId = 'Escolha a conta de origem.';
-    if (!state.transferAccountId) errors.transferAccountId = 'Escolha a conta de destino.';
+    if (!state.accountId) errors.accountId = d.errorFrom;
+    if (!state.transferAccountId) errors.transferAccountId = d.errorTo;
     else if (state.transferAccountId === state.accountId)
-      errors.transferAccountId = 'O destino precisa ser diferente da origem.';
+      errors.transferAccountId = d.errorSameAccount;
   } else if (requiresAccount && !state.accountId) {
-    errors.accountId = 'Escolha a conta desta transação.';
+    errors.accountId = d.errorAccount;
   }
 
   return errors;
@@ -134,6 +127,19 @@ export function TransactionDialog({
 }: TransactionDialogProps) {
   const { categories, refresh, settings, accounts } = useFinance();
   const { notify } = useToast();
+  const t = useT();
+  const { language } = useLanguage();
+
+  const typeOptions: ReadonlyArray<{ value: TransactionType; label: string }> = [
+    { value: 'income', label: t.type.income },
+    { value: 'expense', label: t.type.expense },
+    { value: 'transfer', label: t.type.transfer },
+  ];
+
+  const amountIsOptions = [
+    { value: 'total' as const, label: t.transactionDialog.amountIsTotal },
+    { value: 'installment' as const, label: t.transactionDialog.amountIsInstallment },
+  ];
 
   // Com múltiplas contas ligadas, todo lançamento precisa dizer de onde saiu.
   const useAccounts = settings?.useMultipleAccounts ?? false;
@@ -181,7 +187,7 @@ export function TransactionDialog({
 
   async function handleSubmit(event: React.FormEvent): Promise<void> {
     event.preventDefault();
-    const validation = validate(state, requiresAccount);
+    const validation = validate(state, requiresAccount, t);
     setErrors(validation);
     if (Object.keys(validation).length > 0) return;
 
@@ -200,32 +206,30 @@ export function TransactionDialog({
     try {
       if (transaction) {
         await api.updateTransaction(transaction.id, payload);
-        notify('Transação atualizada');
+        notify(t.transactionDialog.updated);
       } else if (isSplit) {
         const { items } = await api.createInstallments({
           ...payload,
           installments: state.installments,
           amountIs: state.amountIs,
         });
-        notify(`Compra em ${items.length}x adicionada`);
+        notify(t.transactionDialog.createdInstallments(items.length));
       } else {
         await api.createTransaction(payload);
         notify(
           payload.type === 'income'
-            ? 'Entrada adicionada'
+            ? t.transactionDialog.createdIncome
             : payload.type === 'transfer'
-              ? 'Transferência registrada'
-              : 'Saída adicionada',
+              ? t.transactionDialog.createdTransfer
+              : t.transactionDialog.createdExpense,
         );
       }
       refresh();
       onClose();
     } catch (error) {
-      const message =
-        error instanceof ApiError
-          ? error.message
-          : 'Não foi possível salvar a transação. Tente novamente.';
-      setFormError(message);
+      setFormError(
+        error instanceof ApiError ? error.message : t.transactionDialog.saveFailed,
+      );
     } finally {
       setSubmitting(false);
     }
@@ -235,29 +239,27 @@ export function TransactionDialog({
     <Modal
       open={open}
       onClose={onClose}
-      title={isEditing ? 'Editar transação' : 'Nova transação'}
+      title={isEditing ? t.transactionDialog.editTitle : t.transactionDialog.newTitle}
       description={
-        isEditing
-          ? 'As alterações recalculam o saldo na hora.'
-          : 'Registre uma entrada, uma saída ou uma transferência entre suas contas.'
+        isEditing ? t.transactionDialog.editDescription : t.transactionDialog.newDescription
       }
       footer={
         <>
           <Button type="button" variant="ghost" onClick={onClose} disabled={submitting}>
-            Cancelar
+            {t.common.cancel}
           </Button>
           <Button type="submit" form="transaction-form" variant="primary" loading={submitting}>
-            {isEditing ? 'Salvar alterações' : 'Adicionar'}
+            {isEditing ? t.common.saveChanges : t.common.add}
           </Button>
         </>
       }
     >
       <form id="transaction-form" onSubmit={handleSubmit} className="flex flex-col gap-5" noValidate>
         <SegmentedControl
-          ariaLabel="Tipo da transação"
+          ariaLabel={t.transactionDialog.typeLabel}
           size="md"
           className="w-full"
-          options={canTransfer ? TYPE_OPTIONS : TYPE_OPTIONS.slice(0, 2)}
+          options={canTransfer ? typeOptions : typeOptions.slice(0, 2)}
           value={state.type}
           onChange={(type) => {
             setState((current) => ({
@@ -272,7 +274,7 @@ export function TransactionDialog({
           }}
         />
 
-        <Field label="Valor" error={errors.amountCents}>
+        <Field label={t.transactionDialog.amount} error={errors.amountCents}>
           {({ id, describedBy, invalid }) => (
             <CurrencyInput
               id={id}
@@ -285,7 +287,7 @@ export function TransactionDialog({
           )}
         </Field>
 
-        <Field label="Descrição" error={errors.description}>
+        <Field label={t.transactionDialog.description} error={errors.description}>
           {({ id, describedBy, invalid }) => (
             <TextInput
               id={id}
@@ -293,7 +295,11 @@ export function TransactionDialog({
               invalid={invalid}
               maxLength={MAX_DESCRIPTION}
               autoComplete="off"
-              placeholder={state.type === 'income' ? 'Salário de agosto' : 'Almoço no centro'}
+              placeholder={
+                state.type === 'income'
+                  ? t.transactionDialog.incomePlaceholder
+                  : t.transactionDialog.expensePlaceholder
+              }
               value={state.description}
               onChange={(event) => update('description', event.target.value)}
             />
@@ -302,7 +308,7 @@ export function TransactionDialog({
 
         <div className="grid gap-5 sm:grid-cols-2">
           {!isTransfer && (
-            <Field label="Categoria" error={errors.category}>
+            <Field label={t.transactionDialog.category} error={errors.category}>
               {({ id, describedBy, invalid }) => (
                 <Select
                   id={id}
@@ -312,11 +318,11 @@ export function TransactionDialog({
                   onChange={(event) => update('category', event.target.value)}
                 >
                   <option value="" disabled>
-                    Selecione…
+                    {t.common.select}
                   </option>
                   {categoryOptions.map((category) => (
                     <option key={category} value={category}>
-                      {category}
+                      {categoryLabel(category, language)}
                     </option>
                   ))}
                 </Select>
@@ -324,7 +330,10 @@ export function TransactionDialog({
             </Field>
           )}
 
-          <Field label={isSplit ? 'Primeira parcela' : 'Data'} error={errors.date}>
+          <Field
+            label={isSplit ? t.transactionDialog.firstInstallment : t.transactionDialog.date}
+            error={errors.date}
+          >
             {({ id, describedBy, invalid }) => (
               <TextInput
                 id={id}
@@ -342,7 +351,7 @@ export function TransactionDialog({
 
         {isTransfer ? (
           <div className="grid gap-5 sm:grid-cols-2">
-            <Field label="De" error={errors.accountId}>
+            <Field label={t.transactionDialog.from} error={errors.accountId}>
               {({ id, describedBy, invalid }) => (
                 <Select
                   id={id}
@@ -352,7 +361,7 @@ export function TransactionDialog({
                   onChange={(event) => update('accountId', event.target.value)}
                 >
                   <option value="" disabled>
-                    Selecione…
+                    {t.common.select}
                   </option>
                   {accountOptions.map((account) => (
                     <option key={account.id} value={account.id}>
@@ -363,7 +372,7 @@ export function TransactionDialog({
               )}
             </Field>
 
-            <Field label="Para" error={errors.transferAccountId}>
+            <Field label={t.transactionDialog.to} error={errors.transferAccountId}>
               {({ id, describedBy, invalid }) => (
                 <Select
                   id={id}
@@ -373,7 +382,7 @@ export function TransactionDialog({
                   onChange={(event) => update('transferAccountId', event.target.value)}
                 >
                   <option value="" disabled>
-                    Selecione…
+                    {t.common.select}
                   </option>
                   {accountOptions
                     .filter((account) => account.id !== state.accountId)
@@ -389,7 +398,7 @@ export function TransactionDialog({
         ) : (
           useAccounts &&
           (hasAccounts ? (
-            <Field label="Conta" error={errors.accountId}>
+            <Field label={t.transactionDialog.account} error={errors.accountId}>
               {({ id, describedBy, invalid }) => (
                 <Select
                   id={id}
@@ -399,7 +408,7 @@ export function TransactionDialog({
                   onChange={(event) => update('accountId', event.target.value)}
                 >
                   <option value="" disabled>
-                    Selecione…
+                    {t.common.select}
                   </option>
                   {accountOptions.map((account) => (
                     <option key={account.id} value={account.id}>
@@ -411,17 +420,14 @@ export function TransactionDialog({
             </Field>
           ) : (
             <p className="rounded-xl bg-surface-inset px-4 py-3 text-[13px] text-ink-2">
-              Você ativou múltiplas contas mas ainda não cadastrou nenhuma. Adicione suas contas
-              em <strong className="font-medium text-ink">Usuário</strong> para vincular as
-              transações.
+              {t.transactionDialog.noAccountsNote}
             </p>
           ))
         )}
 
         {isTransfer && (
           <p className="rounded-xl bg-surface-inset px-4 py-3 text-[13px] text-ink-2">
-            Transferência só move dinheiro entre contas suas: ela não entra em entradas, saídas nem
-            nos limites de gasto — só muda o saldo de cada conta.
+            {t.transactionDialog.transferNote}
           </p>
         )}
 
@@ -434,13 +440,13 @@ export function TransactionDialog({
                 onChange={(event) => update('installments', event.target.checked ? 2 : 1)}
                 className="size-4 accent-[var(--accent)]"
               />
-              Compra parcelada
+              {t.transactionDialog.installment}
             </label>
 
             {isSplit && (
               <>
                 <div className="grid gap-4 sm:grid-cols-2">
-                  <Field label="Parcelas">
+                  <Field label={t.transactionDialog.installmentCount}>
                     {({ id }) => (
                       <Select
                         id={id}
@@ -458,7 +464,7 @@ export function TransactionDialog({
                     )}
                   </Field>
 
-                  <Field label="O valor acima é o">
+                  <Field label={t.transactionDialog.amountIs}>
                     {({ id }) => (
                       <Select
                         id={id}
@@ -467,7 +473,7 @@ export function TransactionDialog({
                           update('amountIs', event.target.value as FormState['amountIs'])
                         }
                       >
-                        {AMOUNT_IS_OPTIONS.map((option) => (
+                        {amountIsOptions.map((option) => (
                           <option key={option.value} value={option.value}>
                             {option.label}
                           </option>
@@ -478,24 +484,16 @@ export function TransactionDialog({
                 </div>
 
                 <p className="text-[13px] text-ink-2">
-                  {state.amountCents > 0 ? (
-                    <>
-                      {state.installments}x de{' '}
-                      <strong className="tnum font-medium text-ink">
-                        {formatCurrency(preview.rest)}
-                      </strong>
-                      {preview.first !== preview.rest && (
-                        <> (a primeira sai {formatCurrency(preview.first)})</>
-                      )}
-                      , total de{' '}
-                      <strong className="tnum font-medium text-ink">
-                        {formatCurrency(preview.total)}
-                      </strong>
-                      . Uma parcela por mês, a partir da data escolhida.
-                    </>
-                  ) : (
-                    'Informe o valor para ver como as parcelas ficam.'
-                  )}
+                  {state.amountCents > 0
+                    ? t.transactionDialog.installmentPreview(
+                        state.installments,
+                        formatCurrency(preview.rest),
+                        formatCurrency(preview.total),
+                        preview.first !== preview.rest
+                          ? t.transactionDialog.installmentFirstNote(formatCurrency(preview.first))
+                          : '',
+                      )
+                    : t.transactionDialog.installmentPrompt}
                 </p>
               </>
             )}

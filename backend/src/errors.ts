@@ -30,3 +30,15 @@ export class ValidationError extends AppError {
     this.name = 'ValidationError';
   }
 }
+
+/**
+ * A operação é válida, mas esbarra no estado atual — apagar uma categoria que
+ * ainda tem lançamentos, por exemplo. Os `details` dizem o que trava, para a
+ * interface poder oferecer a saída em vez de só recusar.
+ */
+export class ConflictError extends AppError {
+  constructor(message = 'Operação em conflito com os dados atuais.', details?: unknown) {
+    super(409, 'CONFLICT', message, details);
+    this.name = 'ConflictError';
+  }
+}
